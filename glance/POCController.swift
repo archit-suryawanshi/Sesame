@@ -93,16 +93,19 @@ final class POCController {
     func injectStoredPassword(requireAuthoritativeLock: Bool = false) async {
         guard KeystrokeInjector.isAccessibilityTrusted() else {
             statusMessage = "Accessibility not granted — open System Settings and enable glance."
+            UnlockLog.failure("inject refused: Accessibility permission not granted")
             return
         }
         guard SecureCredentialManager.isSessionUnlocked else {
             statusMessage = "Session locked — authenticate with Touch ID first."
+            UnlockLog.failure("inject refused: Touch ID session is locked")
             return
         }
 
         if requireAuthoritativeLock {
             guard LockMonitor.isScreenActuallyLocked() else {
                 statusMessage = "Skipped: CGSession reports screen is not actually locked."
+                UnlockLog.failure("inject refused: CGSession says the screen is not locked")
                 return
             }
         }
@@ -115,8 +118,10 @@ final class POCController {
                 try KeystrokeInjector.typeAndReturn(bytes)
             }.value
             statusMessage = "Injected stored password + Return at \(Date().formatted(date: .omitted, time: .standard))"
+            UnlockLog.outcome("typed stored password and Return")
         } catch {
             statusMessage = "Injection failed: \(error.localizedDescription)"
+            UnlockLog.failure("inject failed: \(error.localizedDescription)")
         }
     }
 }

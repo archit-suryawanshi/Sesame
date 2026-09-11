@@ -37,11 +37,7 @@ nonisolated enum LandmarkGeometry {
     }
 
     static func centroid(of region: VNFaceLandmarkRegion2D, imageSize: CGSize) -> CGPoint? {
-        centroid(of: imagePoints(of: region, imageSize: imageSize))
-    }
-
-    /// Points overload, for callers that already converted a region and need the mean of a subset.
-    static func centroid(of points: [CGPoint]) -> CGPoint? {
+        let points = imagePoints(of: region, imageSize: imageSize)
         guard !points.isEmpty else { return nil }
         let sum = points.reduce(CGPoint.zero) { CGPoint(x: $0.x + $1.x, y: $0.y + $1.y) }
         return CGPoint(x: sum.x / CGFloat(points.count), y: sum.y / CGFloat(points.count))

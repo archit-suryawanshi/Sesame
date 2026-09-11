@@ -23,7 +23,10 @@ nonisolated enum SecureFaceStore {
     /// Distinct filename/extension so plaintext can never be mistaken for ciphertext.
     private static let fileURL: URL = {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let directory = appSupport.appendingPathComponent("glance", isDirectory: true)
+        // Not "glance": an upstream install's face-identities.enc is encrypted under a key this
+        // build cannot read, and finding it there reports as an unreadable store rather than as
+        // "nothing enrolled yet" — which then refuses to write, by design.
+        let directory = appSupport.appendingPathComponent("glance-fork", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory.appendingPathComponent("face-identities.enc")
     }()

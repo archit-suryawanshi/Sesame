@@ -284,13 +284,20 @@ private struct IdentityCard: View {
         identity.samples.filter { $0.qualityTier != .unrated }.count
     }
 
-    /// "3/18 low" counts only the red band. An enrollment saved before
-    /// per-sample quality existed reports "not recorded" rather than a
-    /// misleading "0/18 low".
+    /// Phrased as how many samples are *good*, not how many are low.
+    ///
+    /// The old wording was "Capture quality • 0/18 low", which reads as a score of zero out of
+    /// eighteen when it in fact means a flawless enrollment — the exact opposite. Nothing here is a
+    /// score out of anything; counting upward toward a target that a good enrollment reaches removes
+    /// the ambiguity entirely.
     private var qualityCaption: String {
         if identity.samples.isEmpty { return "No samples captured" }
         if ratedCount == 0 { return "Capture quality • not recorded" }
-        return "Capture quality • \(poorCount)/\(identity.samples.count) low"
+        let usable = identity.samples.count - poorCount
+        if poorCount == 0 {
+            return "Capture quality • all \(identity.samples.count) samples good"
+        }
+        return "Capture quality • \(usable) of \(identity.samples.count) good, \(poorCount) too low"
     }
 
     var body: some View {

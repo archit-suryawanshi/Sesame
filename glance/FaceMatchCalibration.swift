@@ -4,11 +4,16 @@
 //
 //  Where the unlock threshold comes from.
 //
-//  Upstream shipped a fixed 0.66 cosine cutoff against ArcFace w600k_mbf, whose own documented
-//  operating range is roughly 0.28-0.40 (see FaceEmbedding.cosineSimilarity). Nothing a real face
-//  produced could clear it, so unlocks never fired. Rather than swap one hardcoded constant for
-//  another, this derives the cutoff from the enrollment itself: how close does this person, on this
-//  camera, in this room, actually score against their own gallery?
+//  Upstream shipped a fixed 0.66 cosine cutoff. Measured on studio-quality portraits
+//  (tools/embedding_bench.swift), genuine probes score 0.61-0.79 and impostors -0.06 to 0.10 — an
+//  enormous gap, with 0.66 sitting not in the middle of it but at the very top edge of the genuine
+//  range, failing one clean frontal probe in six. A lock-screen webcam is dimmer, lower-resolution
+//  and off-angle, which moves genuine scores down but leaves impostors where they are, so a cutoff
+//  already at the edge on good photos rejects nearly everything in practice while buying no
+//  security the gap wasn't already providing.
+//
+//  Rather than swap one hardcoded constant for another, this derives the cutoff from the enrollment
+//  itself: how close does this person, on this camera, in this room, score against their own gallery?
 //
 
 import Foundation
@@ -26,15 +31,17 @@ struct FaceMatchCalibration: Codable, Equatable {
     /// What `recommendedThreshold` produced from the above, after clamping.
     let threshold: Float
 
-    /// Below this, the impostor tail of a 512-d ArcFace embedding starts to matter. Never calibrate
-    /// under it however loose the enrollment looks — a bad enrollment should be recaptured, not
-    /// accommodated by lowering the gate until anyone passes.
+    /// Never calibrate under this however loose the enrollment looks — a bad enrollment should be
+    /// recaptured, not accommodated by lowering the gate until anyone passes. Measured impostors
+    /// topped out at 0.099, so this leaves roughly 3.5x headroom over the worst observed collision.
     static let floor: Float = 0.36
 
-    /// Above this there is nothing left to gain: enrollment samples are all same-session and
-    /// same-lighting, so they score optimistically high next to a real 11pm unlock. Letting the
-    /// calibration chase that number would fail every unlock that isn't in enrollment conditions.
-    static let ceiling: Float = 0.55
+    /// Enrollment samples are all same-session and same-lighting, so they score optimistically high
+    /// next to a real 11pm unlock — measured worst-case genuine was 0.61 on studio portraits alone,
+    /// and a tight enrollment therefore asks for a cutoff above that. Letting calibration chase the
+    /// number would reproduce upstream's failure at a new value, so it caps out here: still roughly
+    /// five times the worst measured impostor collision, with room left for bad light.
+    static let ceiling: Float = 0.50
 
     /// Headroom under the worst observed genuine score, for conditions enrollment never saw.
     private static let margin: Float = 0.05

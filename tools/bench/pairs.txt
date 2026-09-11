@@ -1,0 +1,10 @@
+img1.jpg img2.jpg same
+img5.jpg img6.jpg same
+img6.jpg img7.jpg same
+img8.jpg img9.jpg same
+img1.jpg img11.jpg same
+img2.jpg img11.jpg same
+img1.jpg img3.jpg diff
+img2.jpg img3.jpg diff
+img6.jpg img8.jpg diff
+img6.jpg img9.jpg diff

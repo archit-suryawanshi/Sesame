@@ -59,9 +59,9 @@ struct RecognitionSettingsPage: View {
             SettingsGroup {
                 SettingsSteppedSliderRowContent(
                     title: "Match confidence",
-                    valueLabel: matchConfidenceLevel.title,
-                    index: matchConfidenceIndex,
-                    stopCount: MatchConfidenceLevel.allCases.count
+                    valueLabel: coordinator.matchStrictness.title,
+                    index: matchStrictnessIndex,
+                    stopCount: MatchStrictness.allCases.count
                 )
 
                 SettingsGroupDivider()
@@ -73,6 +73,8 @@ struct RecognitionSettingsPage: View {
                     stopCount: DetectionDistanceLevel.allCases.count
                 )
             }
+
+            calibrationCaption
 
             VStack(alignment: .leading, spacing: 8) {
                 SettingsSectionTitle(text: "Liveness")
@@ -95,17 +97,38 @@ struct RecognitionSettingsPage: View {
 
     // MARK: - Match confidence
 
-    /// Nearest of the three snap points to whatever's stored, in case the
-    /// value doesn't land exactly on one of the stops.
-    private var matchConfidenceLevel: MatchConfidenceLevel {
-        .nearest(to: coordinator.matchThreshold)
+    private var matchStrictnessIndex: Binding<Double> {
+        Binding(
+            get: { coordinator.matchStrictness.sliderIndex },
+            set: { coordinator.matchStrictness = MatchStrictness.from(sliderIndex: $0) }
+        )
     }
 
-    private var matchConfidenceIndex: Binding<Double> {
-        Binding(
-            get: { matchConfidenceLevel.sliderIndex },
-            set: { coordinator.matchThreshold = MatchConfidenceLevel.from(sliderIndex: $0).threshold }
-        )
+    /// Shows what the slider is actually biasing. The cutoff is measured from each enrollment rather
+    /// than typed in, so without this the number gating every unlock would be invisible.
+    @ViewBuilder
+    private var calibrationCaption: some View {
+        let offset = coordinator.matchStrictness.thresholdOffset
+        let calibrated = FaceEnrollmentStore.shared.activeIdentities.compactMap { identity -> (String, Float, Float)? in
+            guard let calibration = identity.calibration else { return nil }
+            let effective = min(max(calibration.threshold + offset, FaceMatchCalibration.floor), 0.65)
+            return (identity.name, effective, calibration.worstGenuineScore)
+        }
+
+        VStack(alignment: .leading, spacing: 4) {
+            if calibrated.isEmpty {
+                SettingsCaption(text: "Using the default cutoff of \(format(GlanceSettings.defaultMatchThreshold + offset)). Enroll at least four samples to measure one from your own face instead.")
+            } else {
+                ForEach(calibrated, id: \.0) { name, effective, worst in
+                    SettingsCaption(text: "\(name): unlocks at \(format(effective)). The hardest pose in this enrollment scored \(format(worst)).")
+                }
+            }
+        }
+        .padding(.horizontal, SettingsMetrics.sectionTitleHorizontalInset)
+    }
+
+    private func format(_ value: Float) -> String {
+        String(format: "%.2f", value)
     }
 
     // MARK: - Detection distance
@@ -131,42 +154,6 @@ struct RecognitionSettingsPage: View {
             sessionError = pocController.sessionError
             isUnlocking = false
         }
-    }
-}
-
-/// The three selectable points on the "Match confidence" slider — named
-/// rather than exposing the raw cosine-similarity threshold directly.
-private enum MatchConfidenceLevel: Int, CaseIterable {
-    case lessStrict, standard, moreStrict
-
-    var title: String {
-        switch self {
-        case .lessStrict: return "Less strict"
-        case .standard: return "Default"
-        case .moreStrict: return "More strict"
-        }
-    }
-
-    var threshold: Float {
-        switch self {
-        case .lessStrict: return 0.58
-        case .standard: return 0.63
-        case .moreStrict: return 0.68
-        }
-    }
-
-    /// Position in `allCases` — same role as `AutoLockInterval.sliderIndex`.
-    var sliderIndex: Double {
-        Double(Self.allCases.firstIndex(of: self) ?? 0)
-    }
-
-    static func from(sliderIndex: Double) -> Self {
-        let clamped = Int(sliderIndex.rounded())
-        return allCases.indices.contains(clamped) ? allCases[clamped] : .standard
-    }
-
-    static func nearest(to threshold: Float) -> Self {
-        allCases.min { abs($0.threshold - threshold) < abs($1.threshold - threshold) } ?? .standard
     }
 }
 

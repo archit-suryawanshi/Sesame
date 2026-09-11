@@ -155,12 +155,14 @@ extension FaceRecognitionPipeline {
         }.sorted { $0.matchScore > $1.matchScore }
     }
 
-    /// How far the centroid may sit under the match threshold and still pass. The centroid is the
-    /// renormalized mean of every enrolled pose, so a genuine frontal probe scores well below its
-    /// own `matchScore` against it — demanding the same number of both is what made upstream's gate
-    /// unpassable. It stays as a *sanity* check: an impostor lands near zero here, nowhere near even
-    /// the slackened bar, so a probe that hugs two outlier samples without resembling the person
-    /// overall is still rejected.
+    /// How far the centroid may sit under the match threshold and still pass.
+    ///
+    /// Upstream required the centroid and the best sample to *each* clear the threshold, so two
+    /// separately-noisy measurements both had to land — each one an independent chance to fail an
+    /// unlock that should have succeeded. The centroid stays, but as a *sanity* check rather than an
+    /// equal gate: measured impostors sit around 0.01 and never above 0.10, so slackening it by this
+    /// much costs nothing in rejection while still catching a probe that hugs a couple of outlier
+    /// samples without resembling the person overall.
     nonisolated static let centroidSlack: Float = 0.12
 
     /// Shared by Face Lab and FaceUnlockCoordinator so tuning stays consistent. No runner-up margin check: the same person can be enrolled multiple times under different appearances, so two of their own profiles legitimately score close together — a margin check can't tell that apart from two different people colliding.

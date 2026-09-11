@@ -311,8 +311,9 @@ final class GlanceSettings {
         // Enabled by default — onboarding already enrolled a face and set a
         // password specifically to use Face Unlock.
         isFaceUnlockEnabled = defaults.object(forKey: Key.isFaceUnlockEnabled) as? Bool ?? true
-        // Fallback for identities with no calibration. 0.42 sits in ArcFace w600k_mbf's actual
-        // operating range; upstream's 0.66 was roughly double it, which is why nothing ever matched.
+        // Fallback for identities with no calibration. Measured genuine scores run 0.61-0.79 and
+        // impostors -0.06 to 0.10 (tools/embedding_bench.swift), so 0.42 sits in the middle of that
+        // gap where both margins are wide, rather than at the top edge of it like upstream's 0.66.
         //
         // Any stored value at or above 0.56 is from that old scale — the whole new range tops out
         // below it — so it is discarded rather than migrated, or an existing install would carry the

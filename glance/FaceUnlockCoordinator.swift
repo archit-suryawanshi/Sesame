@@ -113,17 +113,23 @@ final class FaceUnlockCoordinator {
         // Runs before the hasArmedForCurrentLock guard — the space monitor's lifetime is tied to "locked + opted in," not to whether a scan already ran.
         updateSpaceMonitor()
 
-        guard isEnabled, !hasArmedForCurrentLock else { return }
+        guard isEnabled else {
+            UnlockLog.blocked("face unlock is switched off")
+            return
+        }
+        guard !hasArmedForCurrentLock else { return }
         guard let signal = requiredTrigger(for: lockMonitor.lastEvent) else { return }
         // A pinned display that isn't connected bails entirely rather than showing up elsewhere; "Main display" (nil) always resolves.
         guard NotchGeometry.preferredScreen() != nil else { return }
 
         guard SecureCredentialManager.isSessionUnlocked else {
             statusMessage = "Face unlock is on, but the session is locked — authenticate once from Password settings first."
+            UnlockLog.blocked("Touch ID session is locked; open Settings > Password and authenticate once")
             return
         }
         guard SecureCredentialManager.hasStoredPassword() else {
             statusMessage = "Face unlock is on, but no password is stored yet."
+            UnlockLog.blocked("no password stored")
             return
         }
 
@@ -248,9 +254,11 @@ final class FaceUnlockCoordinator {
 
         if let error = camera.errorMessage {
             statusMessage = error
+            UnlockLog.failure("camera unavailable: \(error)")
             camera.stop()
             return
         }
+        UnlockLog.event("scan started, window \(Int(scanWindowDuration))s, liveness \(GlanceSettings.shared.livenessChecksEnabled ? GlanceSettings.shared.livenessMode.rawValue : "off")")
 
         let showsUI = self.showsUI
         if showsUI {
@@ -276,6 +284,7 @@ final class FaceUnlockCoordinator {
             }
         case .consistentlyWrongFace:
             statusMessage = "Face not recognized."
+            UnlockLog.outcome("face seen but did not match — \(lastOutcome ?? "no score recorded")")
             if showsUI {
                 NotchOverlayController.shared.finish(success: false)
                 statusMessage = "Face not recognized — hover the notch to try again."
@@ -285,6 +294,7 @@ final class FaceUnlockCoordinator {
             }
         case .spoofSuspected:
             statusMessage = "Couldn't confirm a live face."
+            UnlockLog.outcome("rejected as a spoof — \(lastOutcome ?? "no reason recorded")")
             if showsUI {
                 NotchOverlayController.shared.finish(success: false)
                 statusMessage = "Couldn't confirm a live face — hover the notch to try again."
@@ -294,6 +304,7 @@ final class FaceUnlockCoordinator {
             }
         case .noResolution:
             statusMessage = "No face detected."
+            UnlockLog.outcome("window expired without a decision — \(lastOutcome ?? "no face ever scored")")
             if showsUI {
                 // No explicit collapse call: NotchOverlayController's own scanning timeout fires on the same mark and collapses itself.
                 statusMessage = "No face detected — hover the notch to try again."
@@ -383,6 +394,7 @@ final class FaceUnlockCoordinator {
                 case .denied:
                     // Overrides everything, including a match and any confirmation that already happened.
                     lastOutcome = snapshot.decision.denialReason
+                    UnlockLog.failure("liveness denied: \(snapshot.decision.denialReason ?? "unspecified")")
                     return .spoofSuspected
                 case .confirmed(let cue):
                     livenessConfirmed = true
@@ -399,6 +411,12 @@ final class FaceUnlockCoordinator {
                 fallbackThreshold: matchThreshold,
                 offset: matchStrictness.thresholdOffset
             )
+
+            if let best = scored.first {
+                let gate = best.threshold(fallback: matchThreshold, offset: matchStrictness.thresholdOffset)
+                lastOutcome = "\(best.identity.name) scored \(String(format: "%.3f", best.matchScore)) against \(String(format: "%.3f", gate)) (centroid \(String(format: "%.3f", best.centroidSimilarity)))"
+                UnlockLog.frame("\(lastOutcome ?? "") liveness=\(livenessConfirmed ? "confirmed" : "pending")")
+            }
 
             if let matched {
                 consecutiveWrongFaceFrames = 0

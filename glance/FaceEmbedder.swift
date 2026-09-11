@@ -110,10 +110,11 @@ nonisolated enum FaceEmbedding {
 
     /// Mean of the `k` highest values in `similarities` (all of them if there are fewer than `k`).
     ///
-    /// This is the score an unlock decision is made on, rather than the single best sample or the
-    /// centroid. The single best sample lets one lucky frame carry the decision; the centroid is the
-    /// renormalized mean of every enrolled pose, so a frontal probe is dragged down by the fifteen
-    /// enrolled poses pointing elsewhere. Averaging the nearest few poses is robust to both.
+    /// This is the score an unlock decision is made on, rather than the single best sample. A max
+    /// lets one frame that happened to land well carry the whole decision; averaging the nearest few
+    /// enrolled poses needs the probe to agree with the gallery more than once. It is also the more
+    /// conservative of the two — on tools/embedding_bench.swift's set the worst genuine max was
+    /// 0.634 against a worst genuine top-3 of 0.611, with impostors at 0.099 either way.
     static func topKMean(_ similarities: [Float], k: Int = 3) -> Float? {
         guard !similarities.isEmpty else { return nil }
         let top = similarities.sorted(by: >).prefix(max(1, k))

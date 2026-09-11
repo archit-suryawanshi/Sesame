@@ -2,10 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>SUFeedURL</key>
-	<string>https://tryglance.app/appcast.xml</string>
-	<key>SUPublicEDKey</key>
-	<string>o9uQmlzKzh7NZvFtVktVh/wqw4Ie6WshX8K8NFDweWY=</string>
+	<!-- Upstream pointed SUFeedURL at https://tryglance.app/appcast.xml. Left in place, a local
+	     build would offer to "update" itself to the official release and replace every fix in this
+	     fork with the build that does not unlock. There is no feed for this fork, so Sparkle is
+	     given nothing to check and automatic checks are switched off. -->
+	<key>SUEnableAutomaticChecks</key>
+	<false/>
 	<key>SUAutomaticallyUpdate</key>
 	<false/>
 	<key>SUEnableInstallerLauncherService</key>

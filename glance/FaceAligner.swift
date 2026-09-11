@@ -62,52 +62,18 @@ nonisolated enum FaceAligner {
     private static func fivePoints(from landmarks: VNFaceLandmarks2D, imageSize: CGSize) -> [CGPoint]? {
         guard let eyeA = LandmarkGeometry.eyeCenter(pupil: landmarks.leftPupil, eye: landmarks.leftEye, imageSize: imageSize),
               let eyeB = LandmarkGeometry.eyeCenter(pupil: landmarks.rightPupil, eye: landmarks.rightEye, imageSize: imageSize),
-              let nose = landmarks.nose,
+              let nose = landmarks.nose, let noseCenter = LandmarkGeometry.centroid(of: nose, imageSize: imageSize),
               let outerLips = landmarks.outerLips else { return nil }
 
         // Vision's leftEye/rightEye are anatomical, not on-screen — sort by x instead of trusting either label.
         let imageLeftEye = eyeA.x <= eyeB.x ? eyeA : eyeB
         let imageRightEye = eyeA.x <= eyeB.x ? eyeB : eyeA
 
-        let nosePoints = LandmarkGeometry.imagePoints(of: nose, imageSize: imageSize)
-        guard let noseTip = noseTip(from: nosePoints, leftEye: imageLeftEye, rightEye: imageRightEye) else { return nil }
-
         let lipPoints = LandmarkGeometry.imagePoints(of: outerLips, imageSize: imageSize)
         guard let imageLeftMouth = lipPoints.min(by: { $0.x < $1.x }),
               let imageRightMouth = lipPoints.max(by: { $0.x < $1.x }) else { return nil }
 
-        return [imageLeftEye, imageRightEye, noseTip, imageLeftMouth, imageRightMouth]
-    }
-
-    /// ArcFace's third reference point (56.0, 71.7) is the nose *tip*. Vision's `nose` region is a
-    /// contour tracing the bridge and both nostril wings, whose centroid sits well above the tip —
-    /// feeding it in biased the similarity transform, so every face was warped slightly wrong and
-    /// every genuine similarity came out lower than it should have.
-    ///
-    /// The tip is the contour point furthest down the face's own vertical axis, taken as the
-    /// perpendicular to the inter-ocular line rather than image "down", so the estimate holds when
-    /// the head is rolled.
-    private static func noseTip(from points: [CGPoint], leftEye: CGPoint, rightEye: CGPoint) -> CGPoint? {
-        guard !points.isEmpty else { return nil }
-
-        let eyeAxis = CGVector(dx: rightEye.x - leftEye.x, dy: rightEye.y - leftEye.y)
-        let length = hypot(eyeAxis.dx, eyeAxis.dy)
-        // Degenerate eye positions (both landmarks collapsed onto one point) leave no axis to project
-        // along; the centroid is a poor tip but a better fallback than refusing to align at all.
-        guard length > 0 else { return LandmarkGeometry.centroid(of: points) }
-
-        // Points are in top-left/y-down image space, so rotating the eye axis by +90 degrees
-        // gives the direction from the eyes toward the mouth.
-        let down = CGVector(dx: -eyeAxis.dy / length, dy: eyeAxis.dx / length)
-        let eyeMidpoint = CGPoint(x: (leftEye.x + rightEye.x) / 2, y: (leftEye.y + rightEye.y) / 2)
-
-        return points.max {
-            projection(of: $0, from: eyeMidpoint, along: down) < projection(of: $1, from: eyeMidpoint, along: down)
-        }
-    }
-
-    private static func projection(of point: CGPoint, from origin: CGPoint, along axis: CGVector) -> CGFloat {
-        (point.x - origin.x) * axis.dx + (point.y - origin.y) * axis.dy
+        return [imageLeftEye, imageRightEye, noseCenter, imageLeftMouth, imageRightMouth]
     }
 
     private static func twoPoints(from landmarks: VNFaceLandmarks2D, imageSize: CGSize) -> [CGPoint]? {

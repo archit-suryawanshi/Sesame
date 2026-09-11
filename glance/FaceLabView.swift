@@ -673,7 +673,7 @@ private struct IdentityRow: View {
                     .foregroundStyle(.secondary)
 
                 if lowQualityCount > 0 {
-                    Text("\(lowQualityCount) of \(identity.samples.count) samples are low quality")
+                    Text("\(identity.samples.count - lowQualityCount) of \(identity.samples.count) samples are good quality, \(lowQualityCount) too low")
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }

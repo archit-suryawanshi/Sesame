@@ -47,8 +47,10 @@ nonisolated final class ArcFaceEmbedder: FaceEmbedder, @unchecked Sendable {
     private let pixelBufferPool: CVPixelBufferPool
 
     /// Throws immediately if the model isn't bundled, so callers can fall back to `VisionFeaturePrintEmbedder`.
-    init() throws {
-        guard let modelURL = Self.locateModel() else {
+    /// `explicitModelURL` is for offline harnesses that run this exact code path outside an app
+    /// bundle (see tools/embedding_bench.swift); the app never passes it.
+    init(explicitModelURL: URL? = nil) throws {
+        guard let modelURL = explicitModelURL ?? Self.locateModel() else {
             throw ArcFaceEmbedderError.modelNotFound
         }
 
