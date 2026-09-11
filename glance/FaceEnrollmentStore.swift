@@ -47,6 +47,9 @@ struct FaceIdentity: Codable, Identifiable, Equatable {
     var createdAt: Date
     /// Turning off keeps the enrollment intact but excludes it from `activeIdentities`, which unlock scores against.
     var isEnabled: Bool
+    /// Threshold measured from this identity's own samples (see FaceMatchCalibration). nil on
+    /// enrollments captured before calibration existed, or with too few samples to measure.
+    var calibration: FaceMatchCalibration?
 
     init(
         id: UUID,
@@ -55,7 +58,8 @@ struct FaceIdentity: Codable, Identifiable, Equatable {
         modelIdentifier: String,
         embeddingDimension: Int,
         createdAt: Date,
-        isEnabled: Bool = true
+        isEnabled: Bool = true,
+        calibration: FaceMatchCalibration? = nil
     ) {
         self.id = id
         self.name = name
@@ -64,6 +68,7 @@ struct FaceIdentity: Codable, Identifiable, Equatable {
         self.embeddingDimension = embeddingDimension
         self.createdAt = createdAt
         self.isEnabled = isEnabled
+        self.calibration = calibration
     }
 
     /// Hand-written so `isEnabled` defaults to `true` when absent — a synthesized decoder would throw on a missing
@@ -77,11 +82,18 @@ struct FaceIdentity: Codable, Identifiable, Equatable {
         embeddingDimension = try container.decode(Int.self, forKey: .embeddingDimension)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        calibration = try container.decodeIfPresent(FaceMatchCalibration.self, forKey: .calibration)
     }
 
     /// The single vector actually compared against at recognition time.
     nonisolated var template: [Float]? {
         FaceEmbedding.average(samples.map(\.embedding))
+    }
+
+    /// Re-measures `calibration` from the current samples. Called on every write that changes
+    /// `samples`, so adding or deleting a capture can never leave a stale threshold behind.
+    nonisolated mutating func recalibrate(now: Date = Date()) {
+        calibration = FaceMatchCalibration.measure(samples: samples, now: now)
     }
 
     /// True if samples came from a different embedder than the one currently active — should prompt re-enrollment.
@@ -146,7 +158,13 @@ final class FaceEnrollmentStore {
             return
         }
         do {
-            identities = try SecureFaceStore.load()
+            var loaded = try SecureFaceStore.load()
+            // Backfills enrollments saved before calibration existed. In memory only — the next
+            // write persists it, and a read-only session has no business rewriting the store.
+            for index in loaded.indices where loaded[index].calibration == nil {
+                loaded[index].recalibrate()
+            }
+            identities = loaded
             hasLoadedSuccessfully = true
             loadFailure = nil
         } catch {
@@ -222,9 +240,13 @@ final class FaceEnrollmentStore {
             )
             updated.append(committed)
         }
+        for index in updated.indices {
+            updated[index].recalibrate()
+        }
         try SecureFaceStore.save(updated)
         identities = updated
-        return committed
+        // Re-read rather than returning the pre-calibration local, so the caller sees the measured threshold.
+        return identities.first { $0.id == committed.id } ?? committed
     }
 
     /// Case- and diacritic-insensitive, unlike `addSample`'s exact match: "alex"/"Alex"/"Álex" are one person to the
@@ -271,6 +293,15 @@ final class FaceEnrollmentStore {
         guard hasLoadedSuccessfully else {
             throw FaceEnrollmentStoreError.storeUnreadable
         }
+        recalibrateAll()
         try SecureFaceStore.save(identities)
+    }
+
+    /// Sits on the single write path rather than at each call site, so no future mutation of
+    /// `samples` can forget to re-measure and leave a threshold that no longer describes the gallery.
+    private func recalibrateAll() {
+        for index in identities.indices {
+            identities[index].recalibrate()
+        }
     }
 }

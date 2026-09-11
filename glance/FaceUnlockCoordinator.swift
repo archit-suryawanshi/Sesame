@@ -28,12 +28,18 @@ final class FaceUnlockCoordinator {
     }
 
     /// Kept independent from Face Lab's own `threshold` so tuning the debug tool never silently changes the real unlock gate.
+    /// Only consulted for identities `FaceMatchCalibration` couldn't measure; otherwise each identity carries its own.
     var matchThreshold: Float {
         didSet { GlanceSettings.shared.matchThreshold = matchThreshold }
     }
+    var matchStrictness: MatchStrictness {
+        didSet { GlanceSettings.shared.matchStrictness = matchStrictness }
+    }
     /// Shares its setting with NotchOverlayController's scanning timeout, so the background loop stops in step with the UI collapsing.
+    /// Floored by `LivenessMode.minimumScanSeconds`: Heavy needs to actually observe a blink or a head
+    /// turn, and the shortest selectable window is under the time either reliably takes.
     private var scanWindowDuration: TimeInterval {
-        TimeInterval(GlanceSettings.shared.faceDetectionSeconds)
+        TimeInterval(GlanceSettings.shared.effectiveScanSeconds)
     }
     /// Requires several consecutive below-threshold frames so a single bad-angle read doesn't trigger the failure animation.
     private let wrongFaceStreakThreshold = 6
@@ -66,6 +72,7 @@ final class FaceUnlockCoordinator {
         self.pocController = pocController
         self.isEnabled = GlanceSettings.shared.isFaceUnlockEnabled
         self.matchThreshold = GlanceSettings.shared.matchThreshold
+        self.matchStrictness = GlanceSettings.shared.matchStrictness
         spaceKeyMonitor.onSpaceKeyDown = { [weak self] in self?.handleSpaceKeyPress() }
         observeLockAndWakeEvents()
     }
@@ -387,7 +394,11 @@ final class FaceUnlockCoordinator {
 
             // `activeIdentities`, not `identities`: someone switched off on the Your Face page stays enrolled but must not unlock.
             let scored = pipeline.score(result.embedding, against: FaceEnrollmentStore.shared.activeIdentities)
-            let matched = pipeline.bestMatch(in: scored, threshold: matchThreshold)
+            let matched = pipeline.bestMatch(
+                in: scored,
+                fallbackThreshold: matchThreshold,
+                offset: matchStrictness.thresholdOffset
+            )
 
             if let matched {
                 consecutiveWrongFaceFrames = 0
@@ -405,7 +416,8 @@ final class FaceUnlockCoordinator {
                 let livenessNote = livenessEnabled
                     ? (confirmingCue.map { "live via \($0.title)" } ?? "liveness clear")
                     : "liveness off"
-                lastOutcome = "Matched \(readyMatch.identity.name) at \(String(format: "%.3f", readyMatch.centroidSimilarity)), \(livenessNote)."
+                let gate = readyMatch.threshold(fallback: matchThreshold, offset: matchStrictness.thresholdOffset)
+                lastOutcome = "Matched \(readyMatch.identity.name) at \(String(format: "%.3f", readyMatch.matchScore)) against \(String(format: "%.3f", gate)), \(livenessNote)."
                 await pocController.injectStoredPassword(requireAuthoritativeLock: true)
                 return .matched
             }

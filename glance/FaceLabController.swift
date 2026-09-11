@@ -13,9 +13,12 @@ import Observation
 struct RecognitionResult: Identifiable {
     let id = UUID()
     let name: String
-    /// Similarity against the identity's averaged template.
+    /// The number the decision is made on — mean of the three closest samples.
+    let matchScore: Float
+    /// Similarity against the identity's averaged template. A sanity check only; it is gated at
+    /// `FaceRecognitionPipeline.centroidSlack` below the threshold, not at the threshold itself.
     let centroidSimilarity: Float
-    /// Similarity against the single closest sample. A match must clear the threshold on *both* measures.
+    /// Similarity against the single closest sample. Shown for diagnosis, not gated on.
     let maxSampleSimilarity: Float
     let isStale: Bool
 }
@@ -24,7 +27,8 @@ struct RecognitionResult: Identifiable {
 /// similarity score came from a genuine match" or "from an impostor."
 struct CalibrationSample: Identifiable {
     let id = UUID()
-    let centroidSimilarity: Float
+    /// The top-k match score, same measure the unlock gate uses.
+    let score: Float
     let isGenuine: Bool
 }
 
@@ -75,7 +79,7 @@ final class FaceLabController {
 
     var enrollName: String = ""
     /// Raw cosine similarity cutoff (-1...1); typical ArcFace verification cutoffs sit around 0.28-0.40.
-    var threshold: Double = 0.6
+    var threshold: Double = Double(GlanceSettings.defaultMatchThreshold)
 
     private(set) var recognitionResults: [RecognitionResult] = []
     private(set) var bestMatch: RecognitionResult?
@@ -262,21 +266,27 @@ final class FaceLabController {
         recognitionResults = scored.map { s in
             RecognitionResult(
                 name: s.identity.name,
+                matchScore: s.matchScore,
                 centroidSimilarity: s.centroidSimilarity,
                 maxSampleSimilarity: s.maxSampleSimilarity,
                 isStale: s.identity.isStale(comparedTo: embedder)
             )
         }
 
-        let matched = pipeline.bestMatch(in: scored, threshold: Float(threshold))
+        let matched = pipeline.bestMatch(
+            in: scored,
+            fallbackThreshold: Float(threshold),
+            override: Float(threshold)
+        )
         bestMatch = matched.map {
-            RecognitionResult(name: $0.identity.name, centroidSimilarity: $0.centroidSimilarity, maxSampleSimilarity: $0.maxSampleSimilarity, isStale: false)
+            RecognitionResult(name: $0.identity.name, matchScore: $0.matchScore, centroidSimilarity: $0.centroidSimilarity, maxSampleSimilarity: $0.maxSampleSimilarity, isStale: false)
         }
 
         if let best = scored.first {
             let verdict = (bestMatch != nil) ? "MATCH" : "no match"
             let staleNote = best.identity.isStale(comparedTo: embedder) ? " [STALE — re-enroll under current model]" : ""
-            log("Recognize: best = \(best.identity.name) centroid=\(String(format: "%.3f", best.centroidSimilarity)) max=\(String(format: "%.3f", best.maxSampleSimilarity)) -> \(verdict)\(staleNote)")
+            let calibrated = best.identity.calibration.map { String(format: "%.3f", $0.threshold) } ?? "none"
+            log("Recognize: best = \(best.identity.name) score=\(String(format: "%.3f", best.matchScore)) centroid=\(String(format: "%.3f", best.centroidSimilarity)) max=\(String(format: "%.3f", best.maxSampleSimilarity)) [calibrated=\(calibrated)] -> \(verdict)\(staleNote)")
         }
     }
 
@@ -285,15 +295,15 @@ final class FaceLabController {
     /// Tagged similarity scores collected this session — the actual data a threshold should be picked from, not guessed.
     private(set) var calibrationSamples: [CalibrationSample] = []
 
-    /// Tags the most recent `recognize()` top score as genuine or impostor, using centroid similarity (what the
-    /// threshold slider actually gates on).
+    /// Tags the most recent `recognize()` top score as genuine or impostor, using the match score —
+    /// the number the threshold slider actually gates on.
     func recordCalibrationSample(isGenuine: Bool) {
         guard let top = recognitionResults.first else {
             log("Nothing to record — run Identify first.")
             return
         }
-        calibrationSamples.append(CalibrationSample(centroidSimilarity: top.centroidSimilarity, isGenuine: isGenuine))
-        log("Calibration: recorded \(isGenuine ? "genuine" : "impostor") sample at \(String(format: "%.3f", top.centroidSimilarity)).")
+        calibrationSamples.append(CalibrationSample(score: top.matchScore, isGenuine: isGenuine))
+        log("Calibration: recorded \(isGenuine ? "genuine" : "impostor") sample at \(String(format: "%.3f", top.matchScore)).")
     }
 
     func clearCalibrationSamples() {
@@ -302,16 +312,16 @@ final class FaceLabController {
 
     /// Midpoint between the lowest genuine score and the highest impostor score. Nil until at least one of each is recorded.
     var suggestedThreshold: Float? {
-        let genuine = calibrationSamples.filter(\.isGenuine).map(\.centroidSimilarity)
-        let impostor = calibrationSamples.filter { !$0.isGenuine }.map(\.centroidSimilarity)
+        let genuine = calibrationSamples.filter(\.isGenuine).map(\.score)
+        let impostor = calibrationSamples.filter { !$0.isGenuine }.map(\.score)
         guard let minGenuine = genuine.min(), let maxImpostor = impostor.max() else { return nil }
         return (minGenuine + maxImpostor) / 2
     }
 
     /// True if any impostor score is >= any genuine score — no single threshold perfectly separates the two groups yet.
     var calibrationDistributionsOverlap: Bool {
-        let genuine = calibrationSamples.filter(\.isGenuine).map(\.centroidSimilarity)
-        let impostor = calibrationSamples.filter { !$0.isGenuine }.map(\.centroidSimilarity)
+        let genuine = calibrationSamples.filter(\.isGenuine).map(\.score)
+        let impostor = calibrationSamples.filter { !$0.isGenuine }.map(\.score)
         guard let minGenuine = genuine.min(), let maxImpostor = impostor.max() else { return false }
         return maxImpostor >= minGenuine
     }

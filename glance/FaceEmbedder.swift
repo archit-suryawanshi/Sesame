@@ -108,6 +108,18 @@ nonisolated enum FaceEmbedding {
         return Double((similarity + 1) / 2) * 100
     }
 
+    /// Mean of the `k` highest values in `similarities` (all of them if there are fewer than `k`).
+    ///
+    /// This is the score an unlock decision is made on, rather than the single best sample or the
+    /// centroid. The single best sample lets one lucky frame carry the decision; the centroid is the
+    /// renormalized mean of every enrolled pose, so a frontal probe is dragged down by the fifteen
+    /// enrolled poses pointing elsewhere. Averaging the nearest few poses is robust to both.
+    static func topKMean(_ similarities: [Float], k: Int = 3) -> Float? {
+        guard !similarities.isEmpty else { return nil }
+        let top = similarities.sorted(by: >).prefix(max(1, k))
+        return top.reduce(0, +) / Float(top.count)
+    }
+
     /// Normalize each sample, average, then renormalize — a plain element-wise mean would let a larger-magnitude
     /// sample silently dominate.
     static func average(_ vectors: [[Float]]) -> [Float]? {

@@ -33,6 +33,45 @@ enum AutoLockInterval: Int, CaseIterable, Identifiable {
     }
 }
 
+/// How far the user wants to nudge the measured threshold. This is a bias on top of each
+/// identity's own calibration rather than an absolute cutoff — upstream exposed raw cosine values
+/// on a slider, which only works if you know what scale the model reports on.
+enum MatchStrictness: String, CaseIterable, Identifiable {
+    case lessStrict
+    case standard
+    case moreStrict
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .lessStrict: return "Less strict"
+        case .standard: return "Default"
+        case .moreStrict: return "More strict"
+        }
+    }
+
+    /// Added to the calibrated threshold. Deliberately small: calibration already measured where
+    /// this face sits, so these are nudges for edge cases (poor light, glasses) rather than a way
+    /// to paper over a bad enrollment.
+    var thresholdOffset: Float {
+        switch self {
+        case .lessStrict: return -0.04
+        case .standard: return 0
+        case .moreStrict: return 0.05
+        }
+    }
+
+    var sliderIndex: Double {
+        Double(Self.allCases.firstIndex(of: self) ?? 0)
+    }
+
+    static func from(sliderIndex: Double) -> Self {
+        let clamped = Int(sliderIndex.rounded())
+        return allCases.indices.contains(clamped) ? allCases[clamped] : .standard
+    }
+}
+
 /// Unlock success/failure animation style shown in the notch overlay.
 enum UnlockAnimationStyle: String, CaseIterable, Identifiable {
     case none
@@ -92,6 +131,7 @@ final class GlanceSettings {
     private enum Key {
         static let isFaceUnlockEnabled = "GlanceSettings.isFaceUnlockEnabled"
         static let matchThreshold = "GlanceSettings.matchThreshold"
+        static let matchStrictness = "GlanceSettings.matchStrictness"
         static let livenessChecksEnabled = "GlanceSettings.livenessChecksEnabled"
         static let livenessMode = "GlanceSettings.livenessMode"
         static let minimumFaceWidth = "GlanceSettings.minimumFaceWidth"
@@ -117,11 +157,18 @@ final class GlanceSettings {
 
     @ObservationIgnored private let defaults = UserDefaults.standard
 
+    /// Used when an identity has too few samples for `FaceMatchCalibration` to measure one.
+    static let defaultMatchThreshold: Float = 0.42
+
     var isFaceUnlockEnabled: Bool {
         didSet { defaults.set(isFaceUnlockEnabled, forKey: Key.isFaceUnlockEnabled) }
     }
+    /// Only used for identities with no measured calibration — see `FaceMatchCalibration`.
     var matchThreshold: Float {
         didSet { defaults.set(matchThreshold, forKey: Key.matchThreshold) }
+    }
+    var matchStrictness: MatchStrictness {
+        didSet { defaults.set(matchStrictness.rawValue, forKey: Key.matchStrictness) }
     }
     /// Master switch for liveness checking. Off means face recognition
     /// alone decides an unlock — a photo of the enrolled user would pass.
@@ -201,6 +248,14 @@ final class GlanceSettings {
 
     static let faceDetectionRange = 3...10
 
+    /// The window the scan loop and the notch overlay must both use. They are driven from one place
+    /// because they used to read `faceDetectionSeconds` separately: the overlay collapsing first ends
+    /// the scan early, since `observeScanWindow` bails as soon as the overlay leaves `.scanning`.
+    var effectiveScanSeconds: Int {
+        guard livenessChecksEnabled else { return faceDetectionSeconds }
+        return max(faceDetectionSeconds, livenessMode.minimumScanSeconds)
+    }
+
     /// Which display Face Unlock shows on. `nil` means `NotchGeometry.preferredScreen()`'s
     /// default, re-evaluated live; a pinned display has deliberately no
     /// fallback if disconnected (see `FaceUnlockCoordinator.evaluateTrigger()`).
@@ -256,8 +311,17 @@ final class GlanceSettings {
         // Enabled by default — onboarding already enrolled a face and set a
         // password specifically to use Face Unlock.
         isFaceUnlockEnabled = defaults.object(forKey: Key.isFaceUnlockEnabled) as? Bool ?? true
-        // Matches `MatchConfidenceLevel.standard` — see RecognitionSettingsPage.swift.
-        matchThreshold = defaults.object(forKey: Key.matchThreshold) as? Float ?? 0.66
+        // Fallback for identities with no calibration. 0.42 sits in ArcFace w600k_mbf's actual
+        // operating range; upstream's 0.66 was roughly double it, which is why nothing ever matched.
+        //
+        // Any stored value at or above 0.56 is from that old scale — the whole new range tops out
+        // below it — so it is discarded rather than migrated, or an existing install would carry the
+        // broken cutoff forward forever.
+        let storedThreshold = defaults.object(forKey: Key.matchThreshold) as? Float
+        matchThreshold = (storedThreshold.map { $0 >= 0.56 ? Self.defaultMatchThreshold : $0 })
+            ?? Self.defaultMatchThreshold
+        matchStrictness = defaults.string(forKey: Key.matchStrictness)
+            .flatMap(MatchStrictness.init(rawValue:)) ?? .standard
         livenessChecksEnabled = defaults.object(forKey: Key.livenessChecksEnabled) as? Bool ?? true
         // Light by default — Heavy requires a blink/pose/depth signal a
         // still, non-blinking user may never produce, while Light still

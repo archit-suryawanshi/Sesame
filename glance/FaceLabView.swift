@@ -495,13 +495,13 @@ struct FaceLabView: View {
                 if let best = controller.bestMatch {
                     HStack {
                         Circle().fill(.green).frame(width: 10, height: 10)
-                        Text("Best match: \(best.name) — centroid \(String(format: "%.3f", best.centroidSimilarity)), max \(String(format: "%.3f", best.maxSampleSimilarity))")
+                        Text("Best match: \(best.name) — score \(String(format: "%.3f", best.matchScore)) (centroid \(String(format: "%.3f", best.centroidSimilarity)), max \(String(format: "%.3f", best.maxSampleSimilarity)))")
                         Text("MATCH").font(.caption.bold()).foregroundStyle(.green)
                     }
                 } else if let first = controller.recognitionResults.first {
                     HStack {
                         Circle().fill(.red).frame(width: 10, height: 10)
-                        Text("Closest: \(first.name) — centroid \(String(format: "%.3f", first.centroidSimilarity)), max \(String(format: "%.3f", first.maxSampleSimilarity))")
+                        Text("Closest: \(first.name) — score \(String(format: "%.3f", first.matchScore)) (centroid \(String(format: "%.3f", first.centroidSimilarity)), max \(String(format: "%.3f", first.maxSampleSimilarity)))")
                         Text("NO MATCH").font(.caption.bold()).foregroundStyle(.red)
                     }
                 }
@@ -515,9 +515,9 @@ struct FaceLabView: View {
                                 Text("stale").font(.caption2.bold()).foregroundStyle(.orange)
                             }
                             Spacer()
-                            Text("centroid \(String(format: "%.3f", result.centroidSimilarity))")
+                            Text("score \(String(format: "%.3f", result.matchScore))")
                                 .foregroundStyle(.secondary)
-                            Text("max \(String(format: "%.3f", result.maxSampleSimilarity))")
+                            Text("centroid \(String(format: "%.3f", result.centroidSimilarity))")
                                 .foregroundStyle(.secondary)
                         }
                         .font(.caption)
@@ -557,7 +557,7 @@ struct FaceLabView: View {
                     Chart {
                         ForEach(controller.calibrationSamples) { sample in
                             PointMark(
-                                x: .value("Similarity", sample.centroidSimilarity),
+                                x: .value("Similarity", sample.score),
                                 y: .value("Type", sample.isGenuine ? "Genuine" : "Impostor")
                             )
                             .foregroundStyle(sample.isGenuine ? Color.green : Color.red)

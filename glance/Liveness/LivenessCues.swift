@@ -89,6 +89,20 @@ enum LivenessMode: String, CaseIterable, Identifiable, Sendable {
         case .heavy: return "Also requires proof of a real face."
         }
     }
+
+    /// Shortest scan this mode can actually resolve in, regardless of the window the user picked.
+    ///
+    /// Heavy has to *observe* something: a blink, or enough head rotation for `poseDepthConsistency`
+    /// to clear its 12-degree floor. At a resting blink rate of roughly one every four seconds, a
+    /// three-second scan of someone sitting still frequently contains neither, and the scan times out
+    /// as "couldn't confirm a live face" even though recognition matched on the first frame. Light
+    /// has nothing to wait for — it only ever rejects — so it imposes no floor.
+    var minimumScanSeconds: Int {
+        switch self {
+        case .light: return 0
+        case .heavy: return 7
+        }
+    }
 }
 
 /// Fire thresholds per cue: a cue counts a frame when its reading is confident and

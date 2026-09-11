@@ -90,7 +90,7 @@ final class NotchOverlayController {
     /// Reads the same setting as `FaceUnlockCoordinator.scanWindowDuration` so
     /// the two separate timers expire together.
     private var scanTimeoutDuration: Duration {
-        .seconds(GlanceSettings.shared.faceDetectionSeconds)
+        .seconds(GlanceSettings.shared.effectiveScanSeconds)
     }
     /// Long enough for the closing spring to fully settle before the window is
     /// hidden/left closed — collapsing state too early made the window visibly pop away.

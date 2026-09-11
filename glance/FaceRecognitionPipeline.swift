@@ -125,6 +125,16 @@ nonisolated struct ScoredIdentity {
     /// cases where averaging blurred together poses that shouldn't be
     /// blended.
     let maxSampleSimilarity: Float
+    /// Mean of the three closest samples. This is what an unlock is decided on —
+    /// see `FaceEmbedding.topKMean` for why it beats either of the two above.
+    let matchScore: Float
+
+    /// The cutoff this identity is actually judged against: its own measured calibration where one
+    /// exists, otherwise the global fallback, in both cases nudged by the user's strictness pick.
+    nonisolated func threshold(fallback: Float, offset: Float) -> Float {
+        let base = identity.calibration?.threshold ?? fallback
+        return min(max(base + offset, FaceMatchCalibration.floor), 0.65)
+    }
 }
 
 extension FaceRecognitionPipeline {
@@ -133,17 +143,40 @@ extension FaceRecognitionPipeline {
         identities.compactMap { identity in
             guard let template = identity.template, !identity.samples.isEmpty else { return nil }
             let centroidSim = FaceEmbedding.cosineSimilarity(embedding, template)
-            let maxSim = identity.samples
-                .map { FaceEmbedding.cosineSimilarity(embedding, $0.embedding) }
-                .max() ?? centroidSim
-            return ScoredIdentity(identity: identity, centroidSimilarity: centroidSim, maxSampleSimilarity: maxSim)
-        }.sorted { $0.centroidSimilarity > $1.centroidSimilarity }
+            let similarities = identity.samples.map { FaceEmbedding.cosineSimilarity(embedding, $0.embedding) }
+            let maxSim = similarities.max() ?? centroidSim
+            let matchScore = FaceEmbedding.topKMean(similarities) ?? centroidSim
+            return ScoredIdentity(
+                identity: identity,
+                centroidSimilarity: centroidSim,
+                maxSampleSimilarity: maxSim,
+                matchScore: matchScore
+            )
+        }.sorted { $0.matchScore > $1.matchScore }
     }
 
+    /// How far the centroid may sit under the match threshold and still pass. The centroid is the
+    /// renormalized mean of every enrolled pose, so a genuine frontal probe scores well below its
+    /// own `matchScore` against it — demanding the same number of both is what made upstream's gate
+    /// unpassable. It stays as a *sanity* check: an impostor lands near zero here, nowhere near even
+    /// the slackened bar, so a probe that hugs two outlier samples without resembling the person
+    /// overall is still rejected.
+    nonisolated static let centroidSlack: Float = 0.12
+
     /// Shared by Face Lab and FaceUnlockCoordinator so tuning stays consistent. No runner-up margin check: the same person can be enrolled multiple times under different appearances, so two of their own profiles legitimately score close together — a margin check can't tell that apart from two different people colliding.
-    nonisolated func bestMatch(in scored: [ScoredIdentity], threshold: Float) -> ScoredIdentity? {
+    /// `override` replaces the per-identity calibration outright — for Face Lab's threshold slider,
+    /// which has to be able to sweep the cutoff to be worth anything. The real unlock path never
+    /// passes it, so the debug tool sharing this function can't quietly change the live gate.
+    nonisolated func bestMatch(
+        in scored: [ScoredIdentity],
+        fallbackThreshold: Float,
+        offset: Float = 0,
+        override: Float? = nil
+    ) -> ScoredIdentity? {
         guard let first = scored.first, !first.identity.isStale(comparedTo: embedder) else { return nil }
-        guard first.centroidSimilarity >= threshold, first.maxSampleSimilarity >= threshold else { return nil }
+        let threshold = override ?? first.threshold(fallback: fallbackThreshold, offset: offset)
+        guard first.matchScore >= threshold else { return nil }
+        guard first.centroidSimilarity >= threshold - Self.centroidSlack else { return nil }
         return first
     }
 }
