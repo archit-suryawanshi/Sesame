@@ -90,23 +90,29 @@ final class POCController {
     /// buffer before returning. When `requireAuthoritativeLock` is true (the
     /// auto-trigger path), refuses to inject unless the CGSession dictionary
     /// confirms the screen is actually locked.
-    func injectStoredPassword(requireAuthoritativeLock: Bool = false) async {
+    ///
+    /// Returns whether the keystrokes were actually posted. Every refusal below used to return
+    /// `Void` after writing to `statusMessage`, which at the lock screen is written to nobody: the
+    /// caller then reported a successful unlock regardless, so a face could be recognized, the
+    /// success animation could play, and the Mac would stay locked with nothing typed.
+    @discardableResult
+    func injectStoredPassword(requireAuthoritativeLock: Bool = false) async -> Bool {
         guard KeystrokeInjector.isAccessibilityTrusted() else {
             statusMessage = "Accessibility not granted — open System Settings and enable glance."
             UnlockLog.failure("inject refused: Accessibility permission not granted")
-            return
+            return false
         }
         guard SecureCredentialManager.isSessionUnlocked else {
             statusMessage = "Session locked — authenticate with Touch ID first."
             UnlockLog.failure("inject refused: Touch ID session is locked")
-            return
+            return false
         }
 
         if requireAuthoritativeLock {
             guard LockMonitor.isScreenActuallyLocked() else {
                 statusMessage = "Skipped: CGSession reports screen is not actually locked."
                 UnlockLog.failure("inject refused: CGSession says the screen is not locked")
-                return
+                return false
             }
         }
 
@@ -118,10 +124,12 @@ final class POCController {
                 try KeystrokeInjector.typeAndReturn(bytes)
             }.value
             statusMessage = "Injected stored password + Return at \(Date().formatted(date: .omitted, time: .standard))"
-            UnlockLog.outcome("typed stored password and Return")
+            UnlockLog.event("typed stored password and Return")
+            return true
         } catch {
             statusMessage = "Injection failed: \(error.localizedDescription)"
             UnlockLog.failure("inject failed: \(error.localizedDescription)")
+            return false
         }
     }
 }

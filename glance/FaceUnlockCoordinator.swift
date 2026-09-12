@@ -282,6 +282,16 @@ final class FaceUnlockCoordinator {
             if showsUI {
                 NotchOverlayController.shared.finish(success: true)
             }
+        case .unlockDidNotTake:
+            statusMessage = "Recognized you, but the Mac didn't unlock."
+            UnlockLog.outcome("recognized but the unlock did not take, see the preceding line for why")
+            if showsUI {
+                NotchOverlayController.shared.finish(success: false)
+                statusMessage = "Recognized you, but the Mac didn't unlock — check permissions in Settings."
+            }
+            // Deliberately no auto-retry: a refused injection or a wrong stored password fails
+            // identically every time, and retrying only types the wrong password at the lock screen
+            // a second time.
         case .consistentlyWrongFace:
             statusMessage = "Face not recognized."
             UnlockLog.outcome("face seen but did not match — \(lastOutcome ?? "no score recorded")")
@@ -315,6 +325,24 @@ final class FaceUnlockCoordinator {
         }
     }
 
+    /// How long to give the login window to accept the typed password before calling it a failure.
+    /// Generous: the lock screen animates out over roughly a second, and a slow disk can add more.
+    private static let unlockConfirmationTimeout: TimeInterval = 4
+
+    /// Polls CGSession until the screen reports unlocked, or the timeout expires.
+    ///
+    /// `CGEvent.post` returns nothing and cannot fail visibly, so without this the app has no way to
+    /// tell a real unlock from keystrokes that went nowhere — which is exactly the state a user sees
+    /// as "it scanned my face and then nothing happened."
+    private static func waitForScreenToUnlock() async -> Bool {
+        let deadline = Date().addingTimeInterval(unlockConfirmationTimeout)
+        while Date() < deadline {
+            if !LockMonitor.isScreenActuallyLocked() { return true }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return false
+    }
+
     /// `delay` waits out whatever the overlay is still showing so the retry doesn't start underneath the previous outcome.
     private func scheduleAutoRetryIfEnabled(after delay: Duration) {
         guard GlanceSettings.shared.autoRetryOnce, !hasAutoRetriedForCurrentLock else { return }
@@ -334,6 +362,10 @@ final class FaceUnlockCoordinator {
 
     private enum ScanOutcome {
         case matched
+        /// Recognized and liveness-confirmed, but the Mac did not actually unlock. Kept distinct
+        /// from `.consistentlyWrongFace` because the fix is completely different: nothing is wrong
+        /// with the face, the credential or the permission is.
+        case unlockDidNotTake
         case consistentlyWrongFace
         /// A deny cue (glare, device rectangle) fired — actively rejected as a spoof regardless of match. Same failure path as `.consistentlyWrongFace`.
         case spoofSuspected
@@ -436,7 +468,18 @@ final class FaceUnlockCoordinator {
                     : "liveness off"
                 let gate = readyMatch.threshold(fallback: matchThreshold, offset: matchStrictness.thresholdOffset)
                 lastOutcome = "Matched \(readyMatch.identity.name) at \(String(format: "%.3f", readyMatch.matchScore)) against \(String(format: "%.3f", gate)), \(livenessNote)."
-                await pocController.injectStoredPassword(requireAuthoritativeLock: true)
+                guard await pocController.injectStoredPassword(requireAuthoritativeLock: true) else {
+                    // The reason is already logged by injectStoredPassword.
+                    return .unlockDidNotTake
+                }
+                guard await Self.waitForScreenToUnlock() else {
+                    // Keystrokes were posted but the Mac is still locked. CGEvent.post reports
+                    // nothing back, so this is the only place the difference is observable: either
+                    // the stored password is wrong and the lock screen rejected it, or the events
+                    // never reached the login window at all.
+                    UnlockLog.failure("typed the password but the screen is still locked after \(Int(Self.unlockConfirmationTimeout))s — either the stored password is wrong, or synthetic keystrokes are not reaching the lock screen")
+                    return .unlockDidNotTake
+                }
                 return .matched
             }
 

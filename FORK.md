@@ -60,6 +60,40 @@ each one is an independent chance to fail an unlock that should have succeeded.
 Verified against the labelled set: 6/6 genuine probes accepted and 0/10 impostors at every
 threshold from 0.30 to 0.58.
 
+## A recognized face that still did not unlock
+
+Separate bug, and the one that matches "it scanned my face once and nothing happened".
+
+`injectStoredPassword` returned `Void`. Each of its refusal paths - Accessibility not granted, Touch
+ID session locked, CGSession disagreeing about the lock state, the injection itself throwing - wrote
+a reason into `statusMessage` and returned. At the lock screen nothing renders `statusMessage`, and
+the caller ignored the outcome regardless:
+
+```swift
+await pocController.injectStoredPassword(requireAuthoritativeLock: true)
+return .matched          // success animation, whatever actually happened
+```
+
+So a face could be recognized, the success animation could play, and the Mac would stay locked with
+nothing typed. It also means the scan does *not* schedule an auto-retry, because `.matched` is the
+one outcome that skips it, which is why only a single scan is seen.
+
+Now: the injection result is returned and acted on, and after typing, the app polls CGSession for up
+to 4 seconds to confirm the screen actually unlocked. `CGEvent.post` returns nothing and cannot fail
+visibly, so that poll is the only place the difference is observable. A recognized face that did not
+unlock reports failure and logs which of the two it was.
+
+### Telling the last two cases apart
+
+If the log says the password was typed but the screen stayed locked, watch the lock screen on the
+next attempt:
+
+- **the field shakes, or says the password is wrong** - the stored password is wrong. Re-enter it in
+  Settings > Password.
+- **nothing appears in the field at all** - the synthetic keystrokes are not reaching the login
+  window. That is the approach itself failing, not a configuration problem, and the fix is to
+  authenticate through PAM / a SecurityAgent plugin instead of typing.
+
 ## Heavy liveness had no time to work
 
 Heavy mode requires a positive proof of life: either a blink, or more than 12 degrees of head yaw
