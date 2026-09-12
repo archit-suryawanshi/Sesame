@@ -26,7 +26,7 @@ struct glanceApp: App {
         DispatchQueue.main.async {
             delegate.bindOpenWindowAction { open(id: "settings") }
         }
-        return Window("Glance Settings", id: "settings") {
+        return Window("Sesame Settings", id: "settings") {
             SettingsWindowView(environment: appDelegate.environment)
                 .onAppear {
                     delegate.bindOpenWindowAction { open(id: "settings") }
@@ -41,16 +41,14 @@ struct glanceApp: App {
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Owns the long-lived controllers so every Settings page and the menu bar's session row share the same instances instead of
     /// each spinning up its own camera/lock-monitor (see AppEnvironment.swift). Lives here rather than as `@State` because
     /// `@NSApplicationDelegateAdaptor` constructs this delegate before the scene body runs, so it's always safe to read.
     let environment = AppEnvironment()
 
-    /// Kept alive for the app's lifetime — a local variable would vanish (and the icon with it) once `applicationDidFinishLaunching` returns.
-    private var statusItem: NSStatusItem?
-    /// Held so `menuNeedsUpdate` can refresh this row in place rather than rebuilding the whole menu.
-    private var sessionMenuItem: NSMenuItem?
+    /// Kept alive for the app's lifetime — releasing it unregisters the shortcut.
+    private var settingsHotKey: GlobalHotKey?
     /// Bridges SwiftUI's `openWindow(\.settings)` action in from `glanceApp.body`, since this plain `NSObject` has no
     /// `@Environment` of its own. Bound from the scene body (not `onAppear`) so it's ready before Settings has ever shown —
     /// `NSApp.windows` stops containing the window once fully closed, so only `openWindow(id:)` can reliably re-create it.
@@ -72,40 +70,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        // Custom mark, not an SF Symbol; `isTemplate` is cheap insurance against a plain black-square render.
-        let icon = NSImage(named: "MenuBarIcon")
-        icon?.isTemplate = true
-        // A single-scale vector asset reports its design size with no scaling metadata, so left unset this renders ~10x too
-        // large; sized to match the standard menu bar glyph height, width following the asset's own aspect ratio.
-        if let iconSize = icon?.size, iconSize.height > 0 {
-            let menuBarHeight: CGFloat = 16
-            icon?.size = NSSize(width: menuBarHeight * iconSize.width / iconSize.height, height: menuBarHeight)
-        }
-        item.button?.image = icon
-
-        let menu = NSMenu()
-        // Refreshes `sessionMenuItem` right before the menu displays — see `menuNeedsUpdate` below.
-        menu.delegate = self
-
-        let sessionItem = NSMenuItem(title: "", action: #selector(toggleSession), keyEquivalent: "")
-        sessionItem.target = self
-        menu.addItem(sessionItem)
-        sessionMenuItem = sessionItem
-
-        let settingsItem = NSMenuItem(title: "Settings", action: #selector(openSettingsWindow), keyEquivalent: ",")
-        settingsItem.target = self
-        settingsItem.image = NSImage(systemSymbolName: "gearshape.fill", accessibilityDescription: nil)
-        menu.addItem(settingsItem)
-
-        let quitItem = NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        quitItem.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: nil)
-        menu.addItem(quitItem)
-
-        item.menu = menu
-        statusItem = item
-
-        updateSessionMenuItem()
+        // No NSStatusItem. The app is deliberately invisible while it runs: nothing in the menu bar,
+        // and `.accessory` keeps it out of the Dock too. Three ways back into Settings replace it,
+        // none of which need a permanent slot in anyone's menu bar:
+        //
+        //   1. Open the app again (Spotlight, Finder, Launchpad). Handled in
+        //      `applicationShouldHandleReopen`, which is what a second launch of a running app
+        //      becomes.
+        //   2. The global shortcut below.
+        //   3. `open sesame://settings`, for Shortcuts, Raycast or a shell alias.
+        registerSettingsHotKey()
 
         // SwiftUI can flip the app back to `.regular` while installing scenes even with `.suppressed`; re-assert accessory.
         NSApp.setActivationPolicy(.accessory)
@@ -183,54 +157,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.setActivationPolicy(.accessory)
     }
 
-    /// Fires right before the menu opens — simpler than keeping an `NSMenuItem` reactively bound to `isSessionUnlocked`.
-    func menuNeedsUpdate(_ menu: NSMenu) {
-        updateSessionMenuItem()
-    }
-
-    private func updateSessionMenuItem() {
-        guard let sessionMenuItem else { return }
-        let isUnlocked = environment.pocController.isSessionUnlocked
-        sessionMenuItem.title = isUnlocked ? "Session Unlocked" : "Session Locked"
-        sessionMenuItem.image = NSImage(
-            systemSymbolName: isUnlocked ? "lock.open.fill" : "lock.fill",
-            accessibilityDescription: nil
-        )
-    }
-
-    /// Locking is immediate; unlocking prompts Touch ID, so this can't be a plain synchronous action for that branch.
-    @objc private func toggleSession() {
-        guard !isBlockedByPostUpdateNotice else {
-            presentPostUpdateSecurityNotice()
-            return
-        }
-        if environment.pocController.isSessionUnlocked {
-            environment.pocController.lockSession()
-        } else {
-            Task { await environment.pocController.unlockSession() }
-        }
-    }
-
     /// Keeps the process alive after the window closes so it can still react to the screen locking (e.g. for face unlock).
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
     }
 
-    /// A Dock click must not create the Settings window — that produced a duplicate Recents icon. If already open, the default
-    /// reopen behavior just brings it forward.
+    /// Launching the app while it is already running lands here, and is now the main way back into
+    /// Settings: with no menu bar item and no Dock tile, opening it from Spotlight or Finder is the
+    /// gesture people reach for. Upstream returned `flag`, which did nothing at all when no window
+    /// was open — correct when a menu bar item existed, a dead end once it doesn't.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        return flag
+        openSettingsWindow()
+        return true
     }
 
-    /// Menu bar "Settings" — the only user-facing way to open the window after onboarding.
+    /// `sesame://settings`, so Shortcuts, Raycast or a shell alias can open it too.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard urls.contains(where: { $0.scheme == "sesame" }) else { return }
+        openSettingsWindow()
+    }
+
+    private func registerSettingsHotKey() {
+        settingsHotKey = GlobalHotKey(
+            keyCode: GlobalHotKey.settingsKeyCode,
+            modifiers: GlobalHotKey.settingsModifiers
+        ) { [weak self] in
+            self?.openSettingsWindow()
+        }
+        if settingsHotKey == nil {
+            // Another app already owns the combination. Not fatal, since reopening the app and the
+            // URL scheme both still work, but it must not fail silently.
+            UnlockLog.failure("could not register \(GlobalHotKey.settingsShortcutDescription) — another app owns it. Open the app again, or run: open sesame://settings")
+        }
+    }
+
     @objc private func openSettingsWindow() {
         revealSettingsWindow()
         NSApp.activate(ignoringOtherApps: true)
     }
 
     /// True whenever an updated user hasn't acknowledged the post-update security notice yet.
-    /// Checked by every menu-bar action that would otherwise let them use the app — Settings,
-    /// locking/unlocking — before the notice has been seen.
+    /// Checked before anything that would otherwise let them into Settings.
     private var isBlockedByPostUpdateNotice: Bool {
         GlanceSettings.shared.hasCompletedOnboarding && !GlanceSettings.shared.hasAcknowledgedSecurityNotice
     }

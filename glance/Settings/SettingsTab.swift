@@ -10,7 +10,7 @@ import SwiftUI
 
 enum SettingsSection: String, CaseIterable, Hashable {
     case authentication = "Authentication"
-    case glance = "Glance"
+    case glance = "Sesame"
     case debug = "Debug"
 }
 

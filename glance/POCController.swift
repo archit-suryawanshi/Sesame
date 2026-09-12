@@ -43,7 +43,7 @@ final class POCController {
         sessionError = nil
         do {
             try await Task.detached(priority: .userInitiated) {
-                try SecureCredentialManager.unlockSession(reason: "Authenticate to set up or use glance")
+                try SecureCredentialManager.unlockSession(reason: "Authenticate to set up or use Sesame")
             }.value
             isSessionUnlocked = true
         } catch {
@@ -98,7 +98,7 @@ final class POCController {
     @discardableResult
     func injectStoredPassword(requireAuthoritativeLock: Bool = false) async -> Bool {
         guard KeystrokeInjector.isAccessibilityTrusted() else {
-            statusMessage = "Accessibility not granted — open System Settings and enable glance."
+            statusMessage = "Accessibility not granted — open System Settings and enable Sesame."
             UnlockLog.failure("inject refused: Accessibility permission not granted")
             return false
         }

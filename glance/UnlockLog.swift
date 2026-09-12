@@ -7,7 +7,7 @@
 //  nothing left no trace at all, so "it just doesn't unlock" was undiagnosable from the outside.
 //
 //  These go to the unified log instead, readable afterwards with:
-//      log show --predicate 'subsystem == "app.glance.unlock"' --last 15m --info
+//      log show --predicate 'subsystem == "app.sesame.unlock"' --last 15m --info
 //
 //  Nothing secret is logged: no password bytes, no embeddings, no frames. Similarity scores,
 //  thresholds and gate names only, marked `.public` so they aren't redacted to <private> and the
@@ -18,7 +18,7 @@ import Foundation
 import os
 
 enum UnlockLog {
-    static let subsystem = "app.glance.unlock"
+    static let subsystem = "app.sesame.unlock"
 
     private static let logger = Logger(subsystem: subsystem, category: "scan")
 

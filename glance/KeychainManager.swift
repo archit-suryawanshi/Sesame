@@ -34,10 +34,10 @@ enum KeychainError: LocalizedError {
 }
 
 enum KeychainManager {
-    /// Namespaced to this fork. An upstream Glance install writes under its own bundle id with an
+    /// Namespaced to this app. An upstream Glance install writes under its own bundle id with an
     /// ACL bound to its signing identity, so sharing the service name would only produce keychain
     /// prompts this app can never satisfy.
-    nonisolated static let service = "com.architsuryawanshi.glance"
+    nonisolated static let service = "com.architsuryawanshi.sesame"
 
     /// Attributes-only existence check — never prompts, even for access-controlled items.
     nonisolated static func exists(account: String) -> Bool {

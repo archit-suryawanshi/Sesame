@@ -1,6 +1,25 @@
-# Fork notes
+# Sesame
 
-A fork of [jonnyoo/glance](https://github.com/jonnyoo/glance) that actually unlocks.
+Face unlock for a Mac. A fork of [jonnyoo/glance](https://github.com/jonnyoo/glance) that actually
+unlocks.
+
+## No menu bar item
+
+Sesame keeps no menu bar icon and no Dock tile. It runs invisibly and only appears in the notch when
+it is scanning. Three ways back into Settings replace the status item:
+
+| | |
+|---|---|
+| `⌃⌥⌘S` | Global shortcut, works over full-screen apps. Registered through Carbon's `RegisterEventHotKey` rather than an `NSEvent` global monitor, because that route needs Accessibility and Settings is where you go to *fix* a permission problem. |
+| Open Sesame again | From Spotlight, Finder or Launchpad. Launching an already-running app becomes `applicationShouldHandleReopen`, which now opens Settings instead of returning `flag` and doing nothing. |
+| `open sesame://settings` | For Shortcuts, Raycast or a shell alias. |
+
+They are listed on the About page too, since a shortcut nobody can find is the same as no shortcut.
+If another app already owns `⌃⌥⌘S`, registration fails loudly in the log rather than silently, and
+the other two routes still work.
+
+Quitting Sesame turns face unlock off until it is opened again. With Settings open the app is
+`.regular`, so the usual app menu and `⌘Q` are there.
 
 ## The "0 out of 18" was never a problem
 

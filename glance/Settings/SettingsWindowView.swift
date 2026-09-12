@@ -202,7 +202,7 @@ struct SettingsWindowView: View {
                     pocController: environment.pocController
                 )
             case .about:
-                AboutSettingsPage(updater: environment.updater, environment: environment)
+                AboutSettingsPage(environment: environment)
             case .debugFaceLab:
                 FaceLabView(controller: environment.faceLabController)
             }

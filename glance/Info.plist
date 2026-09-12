@@ -12,5 +12,19 @@
 	<false/>
 	<key>SUEnableInstallerLauncherService</key>
 	<false/>
+
+	<!-- `open sesame://settings`. One of the three ways into Settings that replace the menu bar
+	     item, and the one that scripts, Shortcuts and Raycast can drive. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.architsuryawanshi.sesame.settings</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>sesame</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

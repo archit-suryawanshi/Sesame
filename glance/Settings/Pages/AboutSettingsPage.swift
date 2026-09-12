@@ -7,7 +7,6 @@ import SwiftUI
 import AppKit
 
 struct AboutSettingsPage: View {
-    @Bindable var updater: UpdaterController
     let environment: AppEnvironment
 
     /// Secret-tap state for revealing the Debug/Face Lab sidebar section —
@@ -37,7 +36,7 @@ struct AboutSettingsPage: View {
                 .contentShape(Rectangle())
                 .onTapGesture(perform: handleIconTap)
 
-            Text("Glance")
+            Text("Sesame")
                 .font(.system(size: 22, weight: .semibold))
                 .foregroundStyle(SettingsMetrics.textPrimary)
 
@@ -48,32 +47,40 @@ struct AboutSettingsPage: View {
         .frame(maxWidth: .infinity)
         .padding(.bottom, 16)
 
-        SettingsGroup {
-            SettingsActionRowContent(
-                title: "Check for Updates",
-                buttonTitle: "Check",
-                isEnabled: updater.canCheckForUpdates
-            ) {
-                updater.checkForUpdates()
-            }
+        VStack(alignment: .leading, spacing: 8) {
+            SettingsSectionTitle(text: "Reopening this window")
+            SettingsGroup {
+                SettingsRowContent(
+                    title: "Keyboard shortcut",
+                    info: "Works from anywhere, including over full-screen apps."
+                ) {
+                    Text(GlobalHotKey.settingsShortcutDescription)
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                        .foregroundStyle(SettingsMetrics.textSecondary)
+                }
 
-            SettingsGroupDivider()
+                SettingsGroupDivider()
 
-            SettingsRowContent(title: "Automatically check for updates") {
-                GlanceToggle(isOn: $updater.automaticallyChecksForUpdates)
-            }
+                SettingsRowContent(
+                    title: "Open Sesame again",
+                    info: "From Spotlight, Finder or Launchpad. Launching it while it is already running brings this window back."
+                ) { EmptyView() }
 
-            SettingsGroupDivider()
+                SettingsGroupDivider()
 
-            SettingsActionRowContent(
-                title: "Send Feedback",
-                buttonTitle: "Send"
-            ) {
-                // TODO: point this at the real feedback destination once one exists.
-                if let url = URL(string: "https://tryglance.app/feedback") {
-                    NSWorkspace.shared.open(url)
+                SettingsRowContent(
+                    title: "URL scheme",
+                    info: "For Shortcuts, Raycast or a shell alias."
+                ) {
+                    Text("sesame://settings")
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(SettingsMetrics.textSecondary)
+                        .textSelection(.enabled)
                 }
             }
+
+            // Sesame deliberately has no menu bar item and no Dock tile, so this is the whole list.
+            SettingsCaption(text: "Sesame stays out of the menu bar and the Dock. Quitting it turns face unlock off until you open it again, so leave it running and use one of the above when you need Settings.")
         }
     }
 
