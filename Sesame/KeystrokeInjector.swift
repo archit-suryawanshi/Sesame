@@ -8,6 +8,8 @@
 import Foundation
 import ApplicationServices
 import CoreGraphics
+// IsSecureEventInputEnabled.
+import Carbon.HIToolbox
 
 enum KeystrokeError: LocalizedError {
     case accessibilityNotGranted
@@ -46,11 +48,47 @@ enum KeystrokeInjector {
         guard let text = String(data: passwordBytes, encoding: .utf8) else {
             throw KeystrokeError.eventCreationFailed
         }
+
+        // `CGEvent.post` returns nothing and cannot report being dropped, so these two facts are the
+        // only way to tell the two remaining failures apart when the password is typed and the Mac
+        // stays locked. Secure Event Input is the system-wide switch that makes the OS discard
+        // synthetic keystrokes; if it is on at the lock screen, no user-space app can type there and
+        // the approach itself is dead rather than misconfigured.
+        //
+        // Deliberately not logging the password's length or any part of its content.
+        UnlockLog.event(
+            "about to type: secure event input is \(IsSecureEventInputEnabled() ? "ON, synthetic keystrokes are discarded by the OS" : "off"), "
+            + "stored password is \(passwordBytes.isEmpty ? "EMPTY" : "non-empty")"
+        )
         let source = CGEventSource(stateID: .hidSystemState)
+        wakeLockScreenField(source: source)
         for char in text {
             try postUnicode(String(char), source: source)
         }
+        // Lets the field settle on the last character before submitting; a Return that races the
+        // final keystroke submits a password one character short, which reads as a wrong password.
+        Thread.sleep(forTimeInterval: 0.15)
         try postReturn(source: source)
+    }
+
+    /// Presses and releases Shift, then waits for the lock screen to present its password field.
+    ///
+    /// The macOS lock screen does not always start with that field focused and accepting input: it
+    /// can be showing the clock, and the first keystroke dismisses that rather than typing into
+    /// anything. A password burst posted straight into it loses its leading characters, or all of
+    /// them, and the Mac stays locked with nothing visibly rejected.
+    ///
+    /// Shift is used because it produces no character, so this is harmless when the field already
+    /// had focus.
+    private nonisolated static func wakeLockScreenField(source: CGEventSource?) {
+        let shiftKey: CGKeyCode = 0x38
+        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: shiftKey, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: shiftKey, keyDown: false) else { return }
+        keyDown.post(tap: .cghidEventTap)
+        Thread.sleep(forTimeInterval: 0.02)
+        keyUp.post(tap: .cghidEventTap)
+        // Generous: the field animates in, and typing before it exists is the whole failure above.
+        Thread.sleep(forTimeInterval: 0.6)
     }
 
     /// Per-character Unicode injection — bypasses keyboard layout issues.
