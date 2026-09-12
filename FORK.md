@@ -219,6 +219,57 @@ rather than guessed:
 recognized Archit 480ms after the scan began; typing
 ```
 
+## Two states, not one
+
+A Mac gets locked in two quite different situations, and treating them the same is wrong.
+
+**The lid was opened.** An unambiguous "I am coming back to this machine". Scans automatically.
+
+**Locked with the lid already open** — a manual lock, a sleep from the Apple menu, a display
+timeout. The Mac may be sitting in front of someone who deliberately locked it, quite possibly with
+the owner still in frame. A camera that starts hunting for a face every time here is both wrong and
+unnerving, and it makes "lock my screen" mean nothing. This state waits to be asked, with **right
+Shift**.
+
+`LidMonitor` reads `AppleClamshellState` from `IOPMrootDomain`. The lid state is captured when sleep
+begins, not on waking, when it is already too late to know; the firmware's wake reason is accepted as
+corroboration, since on some Macs the clamshell property has already updated by the time `willSleep`
+is observed. Every evaluation logs `lid=`, `lidOpenWake=` and `wakeReason=`, so a misclassification
+is diagnosable rather than mysterious.
+
+Right Shift rather than space because it types nothing: a press that lands in the password field
+instead of being caught does no damage, and nobody hits it by accident.
+
+## Attention
+
+"Require attention", as Face ID means it: your face being pointed at the Mac is not enough, your
+eyes have to be on it too. Look off to the side with your face still square to the camera and it
+refuses. That is the whole point of the feature — it is what stops a sleeping, distracted or
+unwilling person's face being used to unlock the machine in front of them.
+
+macOS has no gaze API. ARKit's `lookAtPoint` needs a TrueDepth camera, which no Mac has. So gaze is
+estimated from where each pupil sits inside its own eye opening, measured along the *face's* axes
+rather than the image's, so a tilted head does not read as a sideways glance. Head yaw and pitch gate
+it too: past about 22 degrees you are not looking at the Mac whatever the eyes are doing.
+
+Two details worth knowing:
+
+- **Vertical tolerance is asymmetric.** The camera sits above the screen, so looking at the screen
+  always means looking somewhat down — at a typical laptop distance the middle of the display is
+  10-15 degrees below the lens, which moves the iris a good quarter of the eye opening. Treating
+  that as a glance away would reject everyone, every time. Looking *up* is never where the screen is.
+- **"Could not see your eyes" is not "you looked away."** Pupils that will not resolve, typically low
+  light or a glasses reflection, are reported separately, because "look at the screen" is useless
+  advice when the real problem is the light.
+
+`tools/attention_selftest.swift` covers the geometry on synthetic eyes, including roll invariance
+across ±25 degrees, since `VNFaceLandmarks2D` has no public initializer and anything taking one is
+untestable by construction.
+
+It is coarse by nature: it reliably separates looking at the screen from looking well off to one
+side, and does not pretend to know where on the screen you are looking. Settings > Recognition has
+the switch.
+
 ## Diagnosing a failed unlock
 
 Everything that decides an unlock happens while the screen is locked, where no window is visible and

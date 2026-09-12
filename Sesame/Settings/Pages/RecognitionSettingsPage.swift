@@ -77,6 +77,19 @@ struct RecognitionSettingsPage: View {
             calibrationCaption
 
             VStack(alignment: .leading, spacing: 8) {
+                SettingsSectionTitle(text: "Attention")
+                SettingsGroup {
+                    SettingsRowContent(
+                        title: "Require attention",
+                        info: "Your eyes have to be on the screen, not just your face pointed at it. Looking away won't unlock."
+                    ) {
+                        SesameToggle(isOn: $settings.requiresAttention)
+                    }
+                }
+                SettingsCaption(text: "macOS has no gaze API, so this is estimated from where each pupil sits in its eye. It reliably rejects a clear glance away; it can't tell exactly where on the screen you're looking. Turning it off means a face pointed at the camera is enough.")
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
                 SettingsSectionTitle(text: "Liveness")
                 SettingsGroup {
                     SettingsRowContent(

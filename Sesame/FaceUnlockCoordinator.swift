@@ -65,15 +65,19 @@ final class FaceUnlockCoordinator {
     /// When off, no notch/pill presence at all — every overlay call in this file is conditioned on this rather than just skipping the video.
     private var showsUI: Bool { SesameSettings.shared.showUnlockAnimation }
 
-    /// Reads the space key on the lock screen for the "On space" trigger; only runs while locked + opted in.
-    private let spaceKeyMonitor = SpaceKeyMonitor()
+    /// Whether the lid was shut at the moment the machine went to sleep. Compared against the lid
+    /// state on waking to tell "I lifted the lid" from "something else woke this".
+    private var lidWasClosedAtSleep = false
+
+    /// Reads right Shift on the lock screen for the manual trigger; only runs while locked + opted in.
+    private let triggerKeyMonitor = ManualTriggerKeyMonitor()
 
     init(pocController: POCController) {
         self.pocController = pocController
         self.isEnabled = SesameSettings.shared.isFaceUnlockEnabled
         self.matchThreshold = SesameSettings.shared.matchThreshold
         self.matchStrictness = SesameSettings.shared.matchStrictness
-        spaceKeyMonitor.onSpaceKeyDown = { [weak self] in self?.handleSpaceKeyPress() }
+        triggerKeyMonitor.onTriggerKeyDown = { [weak self] in self?.handleTriggerKeyPress() }
         observeLockAndWakeEvents()
     }
 
@@ -132,7 +136,9 @@ final class FaceUnlockCoordinator {
             + "enabled=\(isEnabled) armed=\(hasArmedForCurrentLock) "
             + "session=\(SecureCredentialManager.isSessionUnlocked ? "unlocked" : "LOCKED") "
             + "password=\(SecureCredentialManager.hasStoredPassword()) "
-            + "accessibility=\(KeystrokeInjector.isAccessibilityTrusted())"
+            + "accessibility=\(KeystrokeInjector.isAccessibilityTrusted()) "
+            + "lid=\(LidMonitor.isLidClosed.map { $0 ? "shut" : "open" } ?? "n/a") "
+            + "lidOpenWake=\(isLidOpenWake) wakeReason=\(LidMonitor.lastWakeReason ?? "unknown")"
         )
 
         guard LockMonitor.isScreenActuallyLocked() else {
@@ -142,7 +148,9 @@ final class FaceUnlockCoordinator {
             return
         }
         guard !lockMonitor.isSleeping else {
-            UnlockLog.blocked("still going to sleep; waiting for the wake signal instead")
+            // Captured here rather than on waking, when it is already too late to know.
+            lidWasClosedAtSleep = LidMonitor.isLidClosed == true
+            UnlockLog.blocked("still going to sleep (lid \(lidWasClosedAtSleep ? "shut" : "open")); waiting for the wake signal instead")
             return
         }
 
@@ -212,12 +220,23 @@ final class FaceUnlockCoordinator {
     }
 
     /// nil for signals that shouldn't arm anything — including a nil `lastEvent`, or the first observation would fire regardless of user selection.
+    ///
+    /// Only a lid-open wake arms a scan by itself. Every other lock, including a wake that was not
+    /// the lid, is the manual case and waits for right Shift.
     private func requiredTrigger(for event: LockEventKind?) -> UnlockTrigger? {
         switch event {
-        case .wake: return .onWake
-        case .screenLocked: return .onLock
-        case .screenUnlocked, .willSleep, nil: return nil
+        case .wake: return isLidOpenWake ? .onLidOpen : nil
+        case .screenLocked, .screenUnlocked, .willSleep, nil: return nil
         }
+    }
+
+    /// True when this wake looks like the lid being lifted: it was shut when the Mac went to sleep
+    /// and is open now. The firmware's wake reason is accepted as corroboration, since on some Macs
+    /// the clamshell property has already been updated by the time `willSleep` is observed.
+    private var isLidOpenWake: Bool {
+        let lidIsOpenNow = LidMonitor.isLidClosed == false
+        guard lidIsOpenNow else { return false }
+        return lidWasClosedAtSleep || LidMonitor.wakeReasonNamesLid
     }
 
     private func disarmOverlay() {
@@ -230,26 +249,26 @@ final class FaceUnlockCoordinator {
         camera.stop()
         NotchOverlayController.shared.disarm()
         // Covers isEnabled being switched off directly, keeping "disarmed" and "not listening for space" in lockstep.
-        spaceKeyMonitor.stop()
+        triggerKeyMonitor.stop()
     }
 
     /// Idempotent and safe to call on every lock/wake event. Deliberately does not prompt for Input Monitoring — a missing grant just means "don't listen."
     private func updateSpaceMonitor() {
         let shouldListen = isEnabled
-            && SesameSettings.shared.unlockTriggers.contains(.onSpace)
+            && SesameSettings.shared.unlockTriggers.contains(.onRightShift)
             && LockMonitor.isScreenActuallyLocked()
-            && SpaceKeyMonitor.hasInputMonitoringAccess()
+            && ManualTriggerKeyMonitor.hasInputMonitoringAccess()
         if shouldListen {
-            spaceKeyMonitor.start()
+            triggerKeyMonitor.start()
         } else {
-            spaceKeyMonitor.stop()
+            triggerKeyMonitor.stop()
         }
     }
 
     /// Runs the same gate chain as `evaluateTrigger`, then starts a scan. Independent of `LockMonitor` events, so doesn't touch `hasArmedForCurrentLock`.
-    private func handleSpaceKeyPress() {
+    private func handleTriggerKeyPress() {
         guard isEnabled,
-              SesameSettings.shared.unlockTriggers.contains(.onSpace),
+              SesameSettings.shared.unlockTriggers.contains(.onRightShift),
               LockMonitor.isScreenActuallyLocked(),
               NotchGeometry.preferredScreen() != nil,
               SecureCredentialManager.isSessionUnlocked,
@@ -347,6 +366,15 @@ final class FaceUnlockCoordinator {
             if showsUI {
                 NotchOverlayController.shared.finish(success: true)
             }
+        case .notLookingAtScreen(let detail):
+            statusMessage = "Look at the screen to unlock."
+            UnlockLog.outcome("face matched but attention was never confirmed — \(detail)")
+            if showsUI {
+                NotchOverlayController.shared.finish(success: false)
+                scheduleAutoRetryIfEnabled(after: NotchOverlayController.shared.failureHoldDuration)
+            } else {
+                scheduleAutoRetryIfEnabled(after: headlessRetryDelay)
+            }
         case .unlockDidNotTake:
             statusMessage = "Recognized you, but the Mac didn't unlock."
             UnlockLog.outcome("recognized but the unlock did not take, see the preceding line for why")
@@ -431,6 +459,9 @@ final class FaceUnlockCoordinator {
 
     private enum ScanOutcome {
         case matched
+        /// Face matched, but the eyes were never on the screen. Kept distinct from every other
+        /// failure because the user did nothing wrong and the remedy is simply to look at the Mac.
+        case notLookingAtScreen(String)
         /// Recognized and liveness-confirmed, but the Mac did not actually unlock. Kept distinct
         /// from `.consistentlyWrongFace` because the fix is completely different: nothing is wrong
         /// with the face, the credential or the permission is.
@@ -455,6 +486,12 @@ final class FaceUnlockCoordinator {
         var readyMatch: ScoredIdentity?
         /// Turning liveness off in Settings makes this half permanently ready.
         var livenessConfirmed = !livenessEnabled
+        let attentionRequired = SesameSettings.shared.requiresAttention
+        /// Consecutive attentive frames so far. Reset by any frame that is not, so a glance at the
+        /// screen while turning away cannot accumulate towards an unlock.
+        var attentiveFrames = 0
+        /// Last reason attention was refused, reported if the window expires without it.
+        var attentionRefusal: String?
         /// Last frame's selected face, passed back so `selectDominantFace` stays on the same person instead of flip-flopping.
         var lastFaceBoundingBox: CGRect?
         /// Cheap way to detect "no new camera frame yet" vs. "fresh frame" — without it a repeat frame would corrupt the liveness motion signal.
@@ -486,6 +523,22 @@ final class FaceUnlockCoordinator {
                 continue
             }
             lastFaceBoundingBox = result.face.normalizedBoundingBox
+
+            if attentionRequired {
+                if let attention = AttentionDetector.read(result.face) {
+                    if attention.isAttentive {
+                        attentiveFrames += 1
+                    } else {
+                        attentiveFrames = 0
+                        attentionRefusal = attention.reason
+                    }
+                } else {
+                    // Pupils not resolvable. Not the same as looking away, and reported differently:
+                    // "look at the screen" is useless advice when the real problem is the light.
+                    attentiveFrames = 0
+                    attentionRefusal = "couldn't see your eyes clearly"
+                }
+            }
 
             // Fed regardless of match, so liveness stays a genuinely independent gate rather than one starved by recognition confidence.
             var confirmingCue: LivenessCue?
@@ -520,7 +573,7 @@ final class FaceUnlockCoordinator {
             if let best = scored.first {
                 let gate = best.threshold(fallback: matchThreshold, offset: matchStrictness.thresholdOffset)
                 lastOutcome = "\(best.identity.name) scored \(String(format: "%.3f", best.matchScore)) against \(String(format: "%.3f", gate)) (centroid \(String(format: "%.3f", best.centroidSimilarity)))"
-                UnlockLog.frame("\(lastOutcome ?? "") liveness=\(livenessConfirmed ? "confirmed" : "pending")")
+                UnlockLog.frame("\(lastOutcome ?? "") liveness=\(livenessConfirmed ? "confirmed" : "pending") attention=\(attentionRequired ? "\(attentiveFrames)/\(AttentionDetector.requiredFrames)\(attentionRefusal.map { " (\($0))" } ?? "")" : "off")")
             }
 
             if let matched {
@@ -534,7 +587,8 @@ final class FaceUnlockCoordinator {
                 }
             }
 
-            if let readyMatch, livenessConfirmed {
+            let attentionConfirmed = !attentionRequired || attentiveFrames >= AttentionDetector.requiredFrames
+            if let readyMatch, livenessConfirmed, attentionConfirmed {
                 statusMessage = "Recognized — unlocking…"
                 let livenessNote = livenessEnabled
                     ? (confirmingCue.map { "live via \($0.title)" } ?? "liveness clear")
@@ -558,6 +612,11 @@ final class FaceUnlockCoordinator {
             }
 
             try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        // A window that expired holding a match, with attention the only thing missing, is not "no
+        // face detected" — the user was there the whole time and is owed the actual reason.
+        if readyMatch != nil, attentionRequired, attentiveFrames < AttentionDetector.requiredFrames {
+            return .notLookingAtScreen(attentionRefusal ?? "eyes were not on the screen")
         }
         return .noResolution
     }

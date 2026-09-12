@@ -92,33 +92,43 @@ enum UnlockAnimationStyle: String, CaseIterable, Identifiable {
     static let selectableCases: [UnlockAnimationStyle] = [.minimal, .original]
 }
 
-/// What can prompt Face Unlock. Multi-select; at least one is always kept
-/// selected, since a Mac with none armed would never show the notch.
+/// What can prompt a scan.
+///
+/// Two states, not a free-for-all, because the two situations genuinely differ:
+///
+/// - **Lid opened.** An unambiguous "I am coming back to this machine". Worth scanning for on its
+///   own, and the case where waiting to be asked would be irritating.
+/// - **Locked with the lid open.** A manual lock, a sleep from the Apple menu, a display timeout.
+///   The Mac may be sitting in front of someone who deliberately locked it, possibly with the owner
+///   still in frame. A camera that starts hunting for a face every time here is both wrong and
+///   unnerving, so this one waits to be asked, with right Shift.
 enum UnlockTrigger: String, CaseIterable, Identifiable {
-    /// The display turned back on (see `LockEventKind.wake`).
-    case onWake
-    /// The screen just became locked, no wake involved.
-    case onLock
-    /// Pressing space on the lock screen starts a scan. The lock screen's
-    /// Secure Event Input blocks normal event taps, so this is detected via
-    /// IOKit HID instead (see `SpaceKeyMonitor`), requiring Input Monitoring.
-    case onSpace
+    /// Waking because the lid was opened. Scans automatically.
+    case onLidOpen
+    /// Right Shift at the lock screen. The lock screen's Secure Event Input blocks normal event
+    /// taps, so this is read via IOKit HID instead (see `ManualTriggerKeyMonitor`).
+    case onRightShift
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .onWake: return "On wake"
-        case .onLock: return "On lock"
-        case .onSpace: return "On space"
+        case .onLidOpen: return "When the lid opens"
+        case .onRightShift: return "On right Shift"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .onLidOpen: return "Scans as soon as you lift the lid."
+        case .onRightShift: return "Any other lock waits until you press right Shift."
         }
     }
 
     var iconName: String {
         switch self {
-        case .onWake: return "zzz"
-        case .onLock: return "lock.display"
-        case .onSpace: return "space"
+        case .onLidOpen: return "macbook"
+        case .onRightShift: return "shift"
         }
     }
 }
@@ -140,6 +150,7 @@ final class SesameSettings {
         /// Legacy bool key — read once during migration, then ignored.
         static let playUnlockAnimation = "Sesame.playUnlockAnimation"
         static let unlockTriggers = "Sesame.unlockTriggers"
+        static let requiresAttention = "Sesame.requiresAttention"
         static let retryOnHover = "Sesame.retryOnHover"
         static let faceDetectionSeconds = "Sesame.faceDetectionSeconds"
         static let autoRetryOnce = "Sesame.autoRetryOnce"
@@ -174,6 +185,11 @@ final class SesameSettings {
     /// alone decides an unlock — a photo of the enrolled user would pass.
     var livenessChecksEnabled: Bool {
         didSet { defaults.set(livenessChecksEnabled, forKey: Key.livenessChecksEnabled) }
+    }
+    /// Face ID's "Require Attention": your eyes have to be on the screen, not just your face
+    /// pointed at it. On by default, because off is the weaker of the two and should be chosen.
+    var requiresAttention: Bool {
+        didSet { defaults.set(requiresAttention, forKey: Key.requiresAttention) }
     }
     /// Light (deny-only) vs Heavy (deny plus a required proof of life) —
     /// see `LivenessMode`.
@@ -324,6 +340,7 @@ final class SesameSettings {
         matchStrictness = defaults.string(forKey: Key.matchStrictness)
             .flatMap(MatchStrictness.init(rawValue:)) ?? .standard
         livenessChecksEnabled = defaults.object(forKey: Key.livenessChecksEnabled) as? Bool ?? true
+        requiresAttention = defaults.object(forKey: Key.requiresAttention) as? Bool ?? true
         // Light by default — Heavy requires a blink/pose/depth signal a
         // still, non-blinking user may never produce, while Light still
         // catches the main attack (a photo on a phone screen).
@@ -350,16 +367,13 @@ final class SesameSettings {
         showUnlockAnimation = defaults.object(forKey: Key.showUnlockAnimation) as? Bool
             ?? (storedStyle != .none)
 
-        // On wake/lock by default, not on space — `.onSpace` needs Input
-        // Monitoring, which a fresh install shouldn't request unprompted.
+        // Both on by default: together they cover every way a Mac gets locked, one automatically
+        // and one on request. Old installs stored onWake/onLock/onSpace/onActivity, none of which
+        // exist any more, so anything unrecognised falls through to the default pair.
         let storedTriggers = (defaults.array(forKey: Key.unlockTriggers) as? [String])?
-            .compactMap { raw -> UnlockTrigger? in
-                // "onActivity" was merged into "onWake"; keep old installs working.
-                if raw == "onActivity" { return .onWake }
-                return UnlockTrigger(rawValue: raw)
-            }
+            .compactMap(UnlockTrigger.init(rawValue:))
         unlockTriggers = storedTriggers.map(Set.init).flatMap { $0.isEmpty ? nil : $0 }
-            ?? [.onWake, .onLock]
+            ?? [.onLidOpen, .onRightShift]
         retryOnHover = defaults.object(forKey: Key.retryOnHover) as? Bool ?? true
         faceDetectionSeconds = (defaults.object(forKey: Key.faceDetectionSeconds) as? Int)
             .map { min(max($0, Self.faceDetectionRange.lowerBound), Self.faceDetectionRange.upperBound) }

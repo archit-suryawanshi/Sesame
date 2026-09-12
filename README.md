@@ -43,8 +43,11 @@ for what was changed and why, including the bugs that stopped the original unloc
 1. Onboarding captures your face from nine directions. Each frame becomes a 512-number *embedding*
    and the image is thrown away.
 2. You enter your Mac password once. It is encrypted behind Touch ID.
-3. When the Mac locks or wakes, the notch starts looking for a face.
-4. If it is you, and the liveness checks agree you are a real person, Sesame types the password.
+3. Lift the lid and the notch starts looking for a face. Locked some other way, with the lid still
+   open, it waits until you press **right Shift** rather than watching you sit there.
+4. Attention is required by default: your eyes have to be on the screen, not just your face pointed
+   at it.
+5. If it is you, and the liveness checks agree you are a real person, Sesame types the password.
 
 The threshold it matches against is measured from your own enrollment rather than hardcoded. See
 [FORK.md](FORK.md#why-it-never-unlocked).

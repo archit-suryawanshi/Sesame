@@ -1,15 +1,18 @@
 //
-//  SpaceKeyMonitor.swift
+//  ManualTriggerKeyMonitor.swift
 //  Sesame
 //
-//  Detects the space key on the lock screen via raw IOKit HID reads — Secure Event Input suppresses every other keyboard tap there.
+//  Detects the right Shift key on the lock screen via raw IOKit HID reads — Secure Event Input suppresses every other keyboard tap there.
+//
+//  Right Shift because it is the one key that is unambiguous here: it types nothing, so a press that
+//  lands in the password field instead of here does no damage, and nobody reaches for it by accident.
 //
 //  Sesame never appears under Input Monitoring: TCC resolves that gate against Accessibility first, and Sesame already requires
 //  Accessibility to type the password, so `IOHIDCheckAccess` grants without ever registering it there. Correct, not a bug.
 //
 //  Graceful degradation: if access isn't granted or `IOHIDManagerOpen` fails, `start()` no-ops rather than crashing.
 //
-//  Not a keylogger: only runs while locked + opted into "On space", and the callback checks only whether the key is the spacebar.
+//  Not a keylogger: only runs while locked + opted in, and the callback checks only whether the key is right Shift.
 //
 
 import Foundation
@@ -17,12 +20,12 @@ import IOKit.hid
 import OSLog
 
 @MainActor
-final class SpaceKeyMonitor {
+final class ManualTriggerKeyMonitor {
     /// Traces the Input Monitoring handshake, otherwise invisible since TCC decisions happen out of process.
     static let log = Logger(subsystem: "com.architsuryawanshi.sesame", category: "inputmonitoring")
 
     /// Fires on key-down only, not release or auto-repeat.
-    var onSpaceKeyDown: (() -> Void)?
+    var onTriggerKeyDown: (() -> Void)?
 
     private var manager: IOHIDManager?
 
@@ -91,12 +94,12 @@ final class SpaceKeyMonitor {
             guard let context else { return }
             let element = IOHIDValueGetElement(value)
             guard IOHIDElementGetUsagePage(element) == UInt32(kHIDPage_KeyboardOrKeypad),
-                  IOHIDElementGetUsage(element) == UInt32(kHIDUsage_KeyboardSpacebar),
+                  IOHIDElementGetUsage(element) == UInt32(kHIDUsage_KeyboardRightShift),
                   IOHIDValueGetIntegerValue(value) == 1 // key-down only
             else { return }
-            let monitor = Unmanaged<SpaceKeyMonitor>.fromOpaque(context).takeUnretainedValue()
+            let monitor = Unmanaged<ManualTriggerKeyMonitor>.fromOpaque(context).takeUnretainedValue()
             // Already on the main thread (scheduled on the main run loop); hop onto the main actor to satisfy isolation.
-            Task { @MainActor in monitor.onSpaceKeyDown?() }
+            Task { @MainActor in monitor.onTriggerKeyDown?() }
         }, context)
 
         IOHIDManagerScheduleWithRunLoop(mgr, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
@@ -104,11 +107,11 @@ final class SpaceKeyMonitor {
         // Ground truth about HID access (unlike IOHIDCheckAccess); logged since a failure here is a silent no-op on the lock screen.
         let result = IOHIDManagerOpen(mgr, IOOptionBits(kIOHIDOptionsTypeNone))
         guard result == kIOReturnSuccess else {
-            Self.log.error("IOHIDManagerOpen FAILED (0x\(String(result, radix: 16), privacy: .public)) — space key won't be seen")
+            Self.log.error("IOHIDManagerOpen FAILED (0x\(String(result, radix: 16), privacy: .public)) — right Shift won't be seen")
             IOHIDManagerUnscheduleFromRunLoop(mgr, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
             return
         }
-        Self.log.info("listening for space on the lock screen")
+        Self.log.info("listening for right Shift on the lock screen")
         manager = mgr
     }
 

@@ -17,17 +17,17 @@ struct GeneralSettingsPage: View {
     @State private var screens: [NSScreen] = NSScreen.screens
     /// Refreshed when the app regains focus, so granting the permission in
     /// System Settings clears the prompt below without a relaunch.
-    @State private var inputMonitoring = SpaceKeyMonitor.inputMonitoringAccess
+    @State private var inputMonitoring = ManualTriggerKeyMonitor.inputMonitoringAccess
 
-    /// True once "On space" is selected but Sesame can't read the keyboard yet.
+    /// True once right Shift is selected but Sesame can't read the keyboard yet.
     private var needsInputMonitoring: Bool {
-        settings.unlockTriggers.contains(.onSpace) && inputMonitoring != .granted
+        settings.unlockTriggers.contains(.onRightShift) && inputMonitoring != .granted
     }
 
     /// Dev-only: under Xcode the reading above is Xcode's permission, not
-    /// Sesame's, so it's meaningless. See `SpaceKeyMonitor.isLaunchedByXcode`.
+    /// Sesame's, so it's meaningless. See `ManualTriggerKeyMonitor.isLaunchedByXcode`.
     private var hasInheritedXcodePermission: Bool {
-        settings.unlockTriggers.contains(.onSpace) && SpaceKeyMonitor.isLaunchedByXcode
+        settings.unlockTriggers.contains(.onRightShift) && ManualTriggerKeyMonitor.isLaunchedByXcode
     }
 
     var body: some View {
@@ -60,17 +60,17 @@ struct GeneralSettingsPage: View {
             screens = NSScreen.screens
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            inputMonitoring = SpaceKeyMonitor.inputMonitoringAccess
+            inputMonitoring = ManualTriggerKeyMonitor.inputMonitoringAccess
         }
         .onChange(of: settings.unlockTriggers) { oldValue, newValue in
-            // Only prompt on the transition into selecting "On space".
-            SpaceKeyMonitor.log.info("unlockTriggers changed: old=\(String(describing: oldValue), privacy: .public) new=\(String(describing: newValue), privacy: .public) state=\(String(describing: inputMonitoring), privacy: .public)")
-            if newValue.contains(.onSpace), !oldValue.contains(.onSpace), inputMonitoring != .granted {
-                SpaceKeyMonitor.requestInputMonitoringAccess()
+            // Only prompt on the transition into selecting the right Shift trigger.
+            ManualTriggerKeyMonitor.log.info("unlockTriggers changed: old=\(String(describing: oldValue), privacy: .public) new=\(String(describing: newValue), privacy: .public) state=\(String(describing: inputMonitoring), privacy: .public)")
+            if newValue.contains(.onRightShift), !oldValue.contains(.onRightShift), inputMonitoring != .granted {
+                ManualTriggerKeyMonitor.requestInputMonitoringAccess()
                 // tccd flips notDetermined -> denied just after the call
                 // returns, so re-read on the next beat rather than inline.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                    inputMonitoring = SpaceKeyMonitor.inputMonitoringAccess
+                    inputMonitoring = ManualTriggerKeyMonitor.inputMonitoringAccess
                 }
             }
         }
@@ -131,10 +131,10 @@ struct GeneralSettingsPage: View {
             SettingsCaption(text: "“On space” reads the keyboard directly to see the space key on the lock screen, which needs Accessibility — the same permission Sesame uses to type your password. Switch Sesame on under Privacy & Security → Accessibility, then quit and reopen Sesame.")
             Button("Open Accessibility settings") {
                 // Covers the rare install with no Accessibility grant at all.
-                SpaceKeyMonitor.requestInputMonitoringAccess()
+                ManualTriggerKeyMonitor.requestInputMonitoringAccess()
                 openSystemSettings(pane: "Privacy_Accessibility")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                    inputMonitoring = SpaceKeyMonitor.inputMonitoringAccess
+                    inputMonitoring = ManualTriggerKeyMonitor.inputMonitoringAccess
                 }
             }
             .buttonStyle(.plain)
