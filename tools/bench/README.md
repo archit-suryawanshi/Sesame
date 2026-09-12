@@ -24,13 +24,13 @@ one identity, 8 and 9 a second, and 3 a third.
 ```bash
 swiftc -O -o /tmp/embedding_bench \
   tools/embedding_bench.swift \
-  glance/FaceDetector.swift glance/FaceAligner.swift glance/FaceEmbedder.swift \
-  glance/ArcFaceEmbedder.swift glance/Liveness/LandmarkGeometry.swift \
-  glance/Liveness/LivenessCues.swift glance/Liveness/LivenessScoring.swift \
-  glance/Liveness/GeometryLiveness.swift glance/Liveness/GlareCue.swift
+  Sesame/FaceDetector.swift Sesame/FaceAligner.swift Sesame/FaceEmbedder.swift \
+  Sesame/ArcFaceEmbedder.swift Sesame/Liveness/LandmarkGeometry.swift \
+  Sesame/Liveness/LivenessCues.swift Sesame/Liveness/LivenessScoring.swift \
+  Sesame/Liveness/GeometryLiveness.swift Sesame/Liveness/GlareCue.swift
 
 /tmp/embedding_bench \
-  "$(find ~/Library/Developer/Xcode/DerivedData -name ArcFace.mlmodelc -path "*glance*" | head -1)" \
+  "$(find ~/Library/Developer/Xcode/DerivedData -name ArcFace.mlmodelc -path "*Sesame*" | head -1)" \
   <image-dir> tools/bench/pairs.txt
 ```
 

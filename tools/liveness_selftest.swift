@@ -1,18 +1,18 @@
 //
 //  liveness_selftest.swift
-//  glance (tools)
+//  Sesame (tools)
 //
 //  Offline, camera-free test for the liveness cues and the fire/latch
 //  decision model. This project has no test target, so this compiles as a
 //  standalone script against the real files:
 //
 //      swiftc -O -o /tmp/liveness_selftest \
-//        glance/Liveness/LandmarkGeometry.swift \
-//        glance/Liveness/GeometryLiveness.swift \
-//        glance/Liveness/GlareCue.swift \
-//        glance/Liveness/LivenessCues.swift \
-//        glance/Liveness/LivenessScoring.swift \
-//        glance/Liveness/LivenessAnalyzer.swift \
+//        Sesame/Liveness/LandmarkGeometry.swift \
+//        Sesame/Liveness/GeometryLiveness.swift \
+//        Sesame/Liveness/GlareCue.swift \
+//        Sesame/Liveness/LivenessCues.swift \
+//        Sesame/Liveness/LivenessScoring.swift \
+//        Sesame/Liveness/LivenessAnalyzer.swift \
 //        tools/liveness_selftest.swift \
 //      && /tmp/liveness_selftest
 //

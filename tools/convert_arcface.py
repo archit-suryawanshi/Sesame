@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Converts InsightFace's ArcFace recognition model (w600k_mbf, MobileFaceNet
-backbone trained with ArcFace loss) into a Core ML .mlpackage that Glance's
+backbone trained with ArcFace loss) into a Core ML .mlpackage that Sesame's
 Swift code can load directly.
 
 Pipeline: ONNX (InsightFace's official weights) -> torch (via onnx2torch)
@@ -14,7 +14,7 @@ Usage:
     python tools/convert_arcface.py --variant w600k_mbf
 
 Output:
-    glance/Models/ArcFace.mlpackage
+    Sesame/Models/ArcFace.mlpackage
         input:  "input_image", 112x112 RGB CVPixelBuffer/CGImage
         output: "embedding", 512 floats (NOT yet L2-normalized — Swift does that)
 
@@ -29,7 +29,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_OUTPUT = REPO_ROOT / "glance" / "Models" / "ArcFace.mlpackage"
+DEFAULT_OUTPUT = REPO_ROOT / "Sesame" / "Models" / "ArcFace.mlpackage"
 
 VARIANT_ONNX_NAMES = {
     "w600k_mbf": "w600k_mbf.onnx",   # buffalo_s pack, ~13MB, MobileFaceNet backbone
@@ -189,7 +189,7 @@ def main() -> None:
         verify_parity(mlmodel, onnx_path)
 
     print(f"\nDone. Model ready at: {args.output}")
-    print("Next: add this file to the Xcode project (glance/Models/ArcFace.mlpackage) if not auto-picked-up,")
+    print("Next: add this file to the Xcode project (Sesame/Models/ArcFace.mlpackage) if not auto-picked-up,")
     print("then build — ArcFaceEmbedder.swift will load it from the app bundle at runtime.")
 
 

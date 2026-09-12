@@ -1,14 +1,14 @@
 # Converting ArcFace to Core ML
 
 `convert_arcface.py` turns InsightFace's official `w600k_mbf` ArcFace weights
-(ONNX) into `glance/Models/ArcFace.mlpackage`, ready for `ArcFaceEmbedder.swift`
+(ONNX) into `Sesame/Models/ArcFace.mlpackage`, ready for `ArcFaceEmbedder.swift`
 to load. Run this yourself — it downloads ~2GB of Python tooling (torch,
 coremltools) and ~13MB of model weights from InsightFace's own hosting.
 
 ## Run it
 
 ```bash
-cd /Users/jonathanzhou/Documents/glance
+cd /path/to/Sesame
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r tools/requirements.txt
@@ -27,16 +27,16 @@ First run downloads the InsightFace `buffalo_s` model pack to
    that loads fine and returns plausible-looking garbage. If this check
    fails, the script exits with an error and **the model is not usable** —
    do not wire it in.
-3. Saves `glance/Models/ArcFace.mlpackage`.
+3. Saves `Sesame/Models/ArcFace.mlpackage`.
 
 Expect it to take a few minutes, mostly the one-time package installs.
 
 ## After it succeeds
 
-Add `glance/Models/ArcFace.mlpackage` to the Xcode project if it doesn't
-show up automatically (the `glance/` folder is a file-system-synchronized
+Add `Sesame/Models/ArcFace.mlpackage` to the Xcode project if it doesn't
+show up automatically (the `Sesame/` folder is a file-system-synchronized
 group, so it should auto-appear — if not, drag it into Xcode and make sure
-"Copy items if needed" + the `glance` target are checked).
+"Copy items if needed" + the `Sesame` target are checked).
 
 The model is committed to git (see the repo's `.gitignore` — only the
 *compiled* `.mlmodelc` is excluded, since that's derived from the

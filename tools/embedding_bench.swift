@@ -8,9 +8,9 @@
 //  Build (from the repo root):
 //    swiftc -O -o /tmp/embedding_bench \
 //      tools/embedding_bench.swift \
-//      glance/FaceDetector.swift glance/FaceAligner.swift glance/FaceEmbedder.swift \
-//      glance/ArcFaceEmbedder.swift glance/Liveness/LandmarkGeometry.swift \
-//      glance/Liveness/LivenessCues.swift glance/Liveness/LivenessScoring.swift
+//      Sesame/FaceDetector.swift Sesame/FaceAligner.swift Sesame/FaceEmbedder.swift \
+//      Sesame/ArcFaceEmbedder.swift Sesame/Liveness/LandmarkGeometry.swift \
+//      Sesame/Liveness/LivenessCues.swift Sesame/Liveness/LivenessScoring.swift
 //
 //  Run:
 //    /tmp/embedding_bench <ArcFace.mlmodelc> <image-dir> <pairs-file>

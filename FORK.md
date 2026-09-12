@@ -132,7 +132,7 @@ Everything that decides an unlock happens while the screen is locked, where no w
 `statusMessage` is written to nobody and then overwritten. That path now logs:
 
 ```bash
-log show --predicate 'subsystem == "app.glance.unlock"' --last 15m --info --debug
+log show --predicate 'subsystem == "app.sesame.unlock"' --last 15m --info --debug
 ```
 
 Add `--debug` to include the per-frame scores. No password bytes, embeddings or frames are logged -
@@ -159,7 +159,7 @@ state, and every liveness denial with its reason.
 - `CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO` on Release, so the shipped build is not debuggable by
   anything running as the user - which would otherwise be able to read the decrypted password out of
   memory.
-- Bundle id `com.architsuryawanshi.glance`, keychain service and face-store directory namespaced to
+- Bundle id `com.architsuryawanshi.sesame`, keychain service and face-store directory namespaced to
   this fork. A still-installed upstream Glance encrypts under a key this build cannot read, and
   sharing the paths turns that into an unreadable-store error rather than a clean first run.
 
@@ -176,6 +176,6 @@ contour is plausibly *less* stable frame to frame than averaging it. Reverted.
 ## Building
 
 ```bash
-xcodebuild -project glance.xcodeproj -scheme glance -configuration Release \
+xcodebuild -project Sesame.xcodeproj -scheme Sesame -configuration Release \
   -destination 'platform=macOS,arch=arm64' -allowProvisioningUpdates build
 ```
