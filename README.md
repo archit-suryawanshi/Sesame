@@ -11,6 +11,15 @@
 Open sesame. Lift the lid, look at your Mac, and it unlocks. Everything runs on-device with Vision
 and Core ML, so your face data and your password never leave the machine.
 
+<p align="center">
+  <a href="https://github.com/archit-suryawanshi/Sesame/releases/latest/download/Sesame.dmg"><b>Download for Mac</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/archit-suryawanshi/Sesame/releases/latest">Release notes</a>
+</p>
+
+Signed with Developer ID and notarized by Apple. Requires macOS 15 or later. Read the warning below
+before installing: this is a convenience feature, not a security upgrade.
+
 ---
 
 ## Built on Glance
