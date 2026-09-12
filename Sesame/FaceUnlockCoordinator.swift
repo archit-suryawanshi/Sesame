@@ -69,6 +69,9 @@ final class FaceUnlockCoordinator {
     /// state on waking to tell "I lifted the lid" from "something else woke this".
     private var lidWasClosedAtSleep = false
 
+    /// Pending release of a pre-warmed camera, cancelled if a scan claims it first.
+    private var prewarmReleaseTask: Task<Void, Never>?
+
     /// Reads right Shift on the lock screen for the manual trigger; only runs while locked + opted in.
     private let triggerKeyMonitor = ManualTriggerKeyMonitor()
 
@@ -108,6 +111,8 @@ final class FaceUnlockCoordinator {
     /// scan — the same gates `evaluateTrigger` applies, so the camera never lights up for a lock
     /// that was going to be declined anyway.
     private func prewarmCameraIfArmed() {
+        prewarmReleaseTask?.cancel()
+        prewarmReleaseTask = nil
         guard isEnabled,
               LockMonitor.isScreenActuallyLocked(),
               !lockMonitor.isSleeping,
@@ -123,7 +128,18 @@ final class FaceUnlockCoordinator {
     private func declineAfterPrewarm(_ reason: String) {
         UnlockLog.blocked(reason)
         guard NotchOverlayController.shared.phase != .scanning, scanTask == nil else { return }
-        camera.stop()
+
+        // Not stopped immediately. Waking a Mac emits `screenLocked` and then `wake` a beat later,
+        // and only the second of those arms a scan — so releasing the camera on the first threw away
+        // the warm-up that had just been paid for and made the scan start from cold. Measured 1660ms
+        // to recognition on that path against 670ms on an already-warm camera.
+        prewarmReleaseTask?.cancel()
+        prewarmReleaseTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled, let self else { return }
+            guard scanTask == nil, NotchOverlayController.shared.phase != .scanning else { return }
+            camera.stop()
+        }
     }
 
     private func evaluateTrigger() {
@@ -240,6 +256,8 @@ final class FaceUnlockCoordinator {
     }
 
     private func disarmOverlay() {
+        prewarmReleaseTask?.cancel()
+        prewarmReleaseTask = nil
         scanTask?.cancel()
         scanTask = nil
         // Bumping makes any cycle still suspended at `await camera.start()` inert, rather than resuming and re-showing the overlay.
@@ -309,6 +327,8 @@ final class FaceUnlockCoordinator {
 
     /// Called on arm, and again whenever the overlay hover-activates.
     private func startScanCycle() {
+        prewarmReleaseTask?.cancel()
+        prewarmReleaseTask = nil
         scanTask?.cancel()
         scanGeneration &+= 1
         let generation = scanGeneration
@@ -362,10 +382,9 @@ final class FaceUnlockCoordinator {
 
         switch outcome {
         case .matched:
-            // The unlock already happened inside observeScanWindow — this only decides whether anything is shown about it.
-            if showsUI {
-                NotchOverlayController.shared.finish(success: true)
-            }
+            // The overlay already went to its success state the moment the face was accepted, inside
+            // observeScanWindow. Nothing to show here.
+            break
         case .notLookingAtScreen(let detail):
             statusMessage = "Look at the screen to unlock."
             UnlockLog.outcome("face matched but attention was never confirmed — \(detail)")
@@ -595,11 +614,22 @@ final class FaceUnlockCoordinator {
                     : "liveness off"
                 let gate = readyMatch.threshold(fallback: matchThreshold, offset: matchStrictness.thresholdOffset)
                 lastOutcome = "Matched \(readyMatch.identity.name) at \(String(format: "%.3f", readyMatch.matchScore)) against \(String(format: "%.3f", gate)), \(livenessNote)."
+                UnlockLog.event("recognized \(readyMatch.identity.name) \(Self.elapsedMilliseconds(since: scanBegan))ms after the scan began; typing")
+
+                // Shown here, at the moment the face is accepted, rather than after the unlock has
+                // been confirmed. It used to run after `waitForScreenToUnlock`, so the Mac was
+                // already on the desktop before "accepted" appeared — the confirmation arriving
+                // after the thing it was confirming. The claim is also true at this point and not
+                // before: the face *was* accepted. If the unlock then fails to take, the
+                // `.unlockDidNotTake` branch corrects the overlay to its failure state.
+                if requireOverlayScanning {
+                    NotchOverlayController.shared.finish(success: true)
+                }
+
                 guard await pocController.injectStoredPassword(requireAuthoritativeLock: true) else {
                     // The reason is already logged by injectStoredPassword.
                     return .unlockDidNotTake
                 }
-                UnlockLog.event("recognized \(readyMatch.identity.name) \(Self.elapsedMilliseconds(since: scanBegan))ms after the scan began; typing")
                 guard await Self.waitForScreenToUnlock() else {
                     // Keystrokes were posted but the Mac is still locked. CGEvent.post reports
                     // nothing back, so this is the only place the difference is observable: either
