@@ -45,11 +45,16 @@ Sesame is a fork of **[glance](https://github.com/jonnyoo/glance)** by Jonathan 
 - Apple Silicon or Intel Mac
 
 <p align="center">
-  <a href="https://github.com/archit-suryawanshi/Sesame/releases/latest/download/Sesame.dmg"><img src="https://img.shields.io/badge/⬇%20Download%20for%20Mac-000000?style=for-the-badge" alt="Download for Mac" height="46"></a>
+  <a href="https://github.com/archit-suryawanshi/Sesame/releases/latest/download/Sesame.dmg">
+    <img src=".github/assets/download-for-mac.png" alt="Download for Mac" width="320">
+  </a>
 </p>
 
-Open the `.dmg` and drag Sesame to `/Applications`, then open it. The build is signed with Developer
-ID and notarized by Apple, so it opens without a Gatekeeper warning.
+<p align="center">
+  <sub>Signed with Developer ID and notarized by Apple, so it opens without a Gatekeeper warning.</sub>
+</p>
+
+Open the `.dmg` and drag Sesame to `/Applications`, then open it.
 
 ## Permissions
 
