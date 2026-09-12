@@ -483,6 +483,16 @@ struct LivenessSelfTest {
     private static let skinGlare = GlareSample(cropPixelWidth: 140, specularFraction: 0.004, specularClusterRatio: 0.15)
     private static let screenGlare = GlareSample(cropPixelWidth: 140, specularFraction: 0.09, specularClusterRatio: 0.75)
 
+    /// A real face at the lock screen, lit by the Mac's own display: a good deal more specular
+    /// than `skinGlare`, but still scattered across forehead, nose and cheekbones rather than
+    /// concentrated in one blob.
+    ///
+    /// This fixture exists because `skinGlare` was too flattering. The shipped tuning passed every
+    /// test against it and then denied four scans out of four on an actual face, because the
+    /// concentration term was a soft discount that still let fully scattered highlights contribute
+    /// 30% of full strength. Anything that reintroduces that will fail here.
+    private static let brightSkinAtLockScreen = GlareSample(cropPixelWidth: 140, specularFraction: 0.03, specularClusterRatio: 0.35)
+
     private static func evaluate(
         _ frames: [LivenessFrame], mode: LivenessMode, cues: Set<LivenessCue> = Set(LivenessCue.allCases)
     ) -> LivenessSnapshot {
@@ -509,6 +519,16 @@ struct LivenessSelfTest {
             }
         }
         print("PASS: sustained glare denies in both Light and Heavy mode.")
+
+        // The inverse, and the one that actually bit: bright but scattered skin must not deny.
+        let brightSkinFrames = (0..<12).map { makeCueFrame(at: Double($0) * 0.05, glare: brightSkinAtLockScreen) }
+        for mode in LivenessMode.allCases {
+            let result = evaluate(brightSkinFrames, mode: mode)
+            if case .denied(let cue) = result.decision {
+                fatalError("FAIL: a bright but scattered real face should not deny in \(mode.title) mode, got denied by \(cue).")
+            }
+        }
+        print("PASS: bright, scattered skin at the lock screen is not mistaken for screen glare.")
 
         // Device overlap above the fire level must deny, even well below
         // the old 0.55 bezel threshold — 20% for a few frames is the rule.

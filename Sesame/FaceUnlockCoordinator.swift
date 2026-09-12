@@ -453,7 +453,11 @@ final class FaceUnlockCoordinator {
                 case .denied:
                     // Overrides everything, including a match and any confirmation that already happened.
                     lastOutcome = snapshot.decision.denialReason
-                    UnlockLog.failure("liveness denied: \(snapshot.decision.denialReason ?? "unspecified")")
+                    let measured = livenessFrame.glare.map {
+                        String(format: "specular=%.4f cluster=%.3f cropPx=%.0f",
+                               $0.specularFraction, $0.specularClusterRatio, $0.cropPixelWidth)
+                    } ?? "no glare sample"
+                    UnlockLog.failure("liveness denied: \(snapshot.decision.denialReason ?? "unspecified") [\(measured)]")
                     return .spoofSuspected
                 case .confirmed(let cue):
                     livenessConfirmed = true

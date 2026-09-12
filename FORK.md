@@ -148,13 +148,48 @@ The scan loop and the notch overlay also read that window from one place now. Th
 `faceDetectionSeconds` separately, and `observeScanWindow` bails as soon as the overlay leaves
 `.scanning`, so the UI collapsing could end the scan early.
 
+## The anti-spoofing denied a real face
+
+With recognition fixed, scans started reaching the liveness stage and being rejected there, four
+times out of four, with "Screen glare detected — this looks like a photo on a display."
+
+`glossGlare` describes itself correctly: "Skin gives many small scattered specular points; glass
+gives one big flat blob." The code did not do that. Concentration was a soft discount:
+
+```swift
+let level = fractionScore * (0.3 + 0.7 * clusterFactor)
+```
+
+Perfectly scattered highlights — the exact signature of skin — still contributed 30% of full
+strength. Against the 0.04 fire level that meant a real face needed only about 1.3% of its pixels
+near-saturated and low-chroma to be denied as a screen, which a forehead lit by the lock screen's own
+wallpaper clears without trying.
+
+Concentration is now a gate rather than a discount, which is what the comment always claimed:
+
+```swift
+let clusterFactor = ramp(glare.specularClusterRatio, floor: 0.5, ceiling: 0.9)
+let level = fractionScore * clusterFactor
+```
+
+A face crop is 64 grid cells, so even scatter sits near 0.016 and a single blob at 1.0. Requiring
+half the specular pixels in one cell is well clear of anything skin produces, and a genuine screen
+reflection still denies with a wide margin.
+
+The self-test's `skinGlare` fixture was the reason this shipped: at `specularFraction` 0.004 it was
+far milder than real skin, so the tuning passed every test and then failed on a face.
+`tools/liveness_selftest.swift` now also carries `brightSkinAtLockScreen` (0.03 scattered across
+0.35), which fails on the old formula and passes on the new one. A denial also logs the measured
+`specular`, `cluster` and `cropPx` values, so a remaining false positive is diagnosable rather than
+a guess.
+
 ## Diagnosing a failed unlock
 
 Everything that decides an unlock happens while the screen is locked, where no window is visible and
 `statusMessage` is written to nobody and then overwritten. That path now logs:
 
 ```bash
-log show --predicate 'subsystem == "app.sesame.unlock"' --last 15m --info --debug
+/usr/bin/log show --predicate 'subsystem == "app.sesame.unlock"' --last 15m
 ```
 
 Add `--debug` to include the per-frame scores. No password bytes, embeddings or frames are logged -

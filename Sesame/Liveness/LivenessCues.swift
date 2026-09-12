@@ -298,11 +298,23 @@ nonisolated enum LivenessCues {
     /// Skin gives many small scattered specular points; glass gives one big
     /// flat blob. `specularFraction` alone would fire on a bright forehead,
     /// so it's gated by how concentrated that glare is.
+    ///
+    /// The concentration used to be a soft multiplier, `0.3 + 0.7 * clusterFactor`, which
+    /// contradicted that description: perfectly scattered highlights — the exact signature of skin —
+    /// still contributed 30% of full strength. Combined with a 0.04 fire level, a real face needed
+    /// only about 1.3% of its pixels near-saturated to be denied as a screen, which a forehead lit by
+    /// the lock screen's own wallpaper clears easily. Measured on a real face at the lock screen it
+    /// denied four scans out of four.
+    ///
+    /// Concentration is now a gate rather than a discount. Scattered means skin, so the cue
+    /// contributes nothing, which is what the comment above always claimed it did.
     nonisolated static func glossGlare(_ frame: LivenessFrame?) -> CueReading {
         guard let glare = frame?.glare else { return .none }
         let fractionScore = ramp(glare.specularFraction, floor: 0.01, ceiling: 0.08)
-        let clusterFactor = ramp(glare.specularClusterRatio, floor: 0.3, ceiling: 1.0)
-        let level = fractionScore * (0.3 + 0.7 * clusterFactor)
+        // A face crop is 64 grid cells, so perfectly even scatter sits near 0.016 and a single blob
+        // at 1.0. Half the specular pixels landing in one cell is well clear of anything skin does.
+        let clusterFactor = ramp(glare.specularClusterRatio, floor: 0.5, ceiling: 0.9)
+        let level = fractionScore * clusterFactor
         // Below ~50 native px of face there isn't enough detail to tell a
         // glare blob from a bright patch; ramps to full trust by ~130px.
         let confidence = ramp(Float(glare.cropPixelWidth), floor: 50, ceiling: 130)

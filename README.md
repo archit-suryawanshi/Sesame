@@ -63,7 +63,7 @@ scanning. To open Settings:
 ## Diagnosing a failed unlock
 
 ```bash
-log show --predicate 'subsystem == "app.sesame.unlock"' --last 15m --info --debug
+/usr/bin/log show --predicate 'subsystem == "app.sesame.unlock"' --last 15m
 ```
 
 Every gate that can stop an unlock says so there, with the similarity scores it measured. No
