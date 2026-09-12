@@ -127,9 +127,16 @@ state, and every liveness denial with its reason.
 
 - **Sparkle's feed URL is removed.** Left in, a local build offers to "update" itself to the
   official release and replaces every fix here with the build that does not unlock.
-- Signed under this account's team. The `keychain-access-groups` entitlement is dropped - nothing
-  uses an access group (`KeychainManager` passes no `kSecAttrAccessGroup`), and requiring it forces
-  a provisioning profile and a registered device for every local build.
+- Signed under this account's team, which means the Mac must be registered in that developer
+  account once (Xcode does it automatically on the first build from the GUI).
+
+  The `keychain-access-groups` entitlement is **required**, despite `KeychainManager` never passing
+  a `kSecAttrAccessGroup`. `SecAccessControlCreateWithFlags(..., .userPresence, ...)` is what forces
+  it: passing `kSecAttrAccessControl` routes the item to the data protection keychain, which on
+  macOS is only available to an app in a keychain access group. Without it every save fails with
+  `errSecMissingEntitlement`, surfaced as "Keychain error: A required entitlement isn't present."
+  at the password step. Grepping for `kSecAttrAccessGroup` and finding nothing is not enough to
+  conclude the entitlement is unused.
 - `CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO` on Release, so the shipped build is not debuggable by
   anything running as the user - which would otherwise be able to read the decrypted password out of
   memory.
