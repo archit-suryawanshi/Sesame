@@ -66,7 +66,7 @@ enum KeystrokeInjector {
         }
         // Lets the field settle on the last character before submitting; a Return that races the
         // final keystroke submits a password one character short, which reads as a wrong password.
-        Thread.sleep(forTimeInterval: 0.1)
+        Thread.sleep(forTimeInterval: 0.05)
         try postReturn(source: source)
     }
 
@@ -112,6 +112,12 @@ enum KeystrokeInjector {
     }
 
     /// Per-character Unicode injection — bypasses keyboard layout issues.
+    ///
+    /// The 2ms pacing is about appearance as much as reliability. A whole password at 16ms a
+    /// character fills the field in a visible little run of dots, which reads as something typing;
+    /// at 2ms the dots land together and it reads as the field simply being full. The gap is not
+    /// zero because a secure field given a burst with no gaps at all has been seen to drop
+    /// characters, and a dropped character is a failed login attempt.
     private nonisolated static func postUnicode(_ unicode: String, source: CGEventSource?) throws {
         let utf16 = Array(unicode.utf16)
         guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
@@ -125,9 +131,9 @@ enum KeystrokeInjector {
             }
         }
         keyDown.post(tap: .cghidEventTap)
-        Thread.sleep(forTimeInterval: 0.008)
+        Thread.sleep(forTimeInterval: 0.002)
         keyUp.post(tap: .cghidEventTap)
-        Thread.sleep(forTimeInterval: 0.008)
+        Thread.sleep(forTimeInterval: 0.002)
     }
 
     /// Physical Return key (virtual key 0x24).
