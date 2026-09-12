@@ -113,6 +113,28 @@ next attempt:
   window. That is the approach itself failing, not a configuration problem, and the fix is to
   authenticate through PAM / a SecurityAgent plugin instead of typing.
 
+## Face unlock silently died after every restart
+
+The Touch ID session key lives only in `SecureCredentialManager`'s memory and is unwrapped once per
+launch. Every start of the app therefore begins with the session locked, and
+`FaceUnlockCoordinator.evaluateTrigger` declines to scan until something unlocks it:
+
+```swift
+guard SecureCredentialManager.isSessionUnlocked else { ... return }
+```
+
+That gate is right — it means a rebooted Mac cannot be face-unlocked until a human has touched the
+sensor once. What was wrong is that nothing said so. Upstream's menu bar item read "Session Locked"
+and let you fix it there. With no menu bar item, and with launch-at-login starting the app
+invisibly, the Mac simply stopped face unlocking after every restart with no visible reason and
+nowhere obvious to look. Nothing appears at the lock screen at all.
+
+Sesame now asks for Touch ID once at launch, as soon as it knows a password is stored and face
+unlock is on. The gate is unchanged: Touch ID is still required, still once per launch, and
+cancelling still leaves the session locked. It just asks at the moment the answer is needed instead
+of waiting to be found. A cancelled prompt is logged, and Settings > Password still shows the state
+and an Unlock button.
+
 ## Heavy liveness had no time to work
 
 Heavy mode requires a positive proof of life: either a blink, or more than 12 degrees of head yaw

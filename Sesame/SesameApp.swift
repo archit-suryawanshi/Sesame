@@ -96,6 +96,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if SesameSettings.shared.hasCompletedOnboarding {
             if SesameSettings.shared.hasAcknowledgedSecurityNotice {
                 startUpdaterIfNeeded()
+                // Without this the Mac stops face unlocking after every restart: the Touch ID
+                // session key lives only in memory, so a fresh launch always starts locked.
+                Task { [environment] in await environment.pocController.armSessionAtLaunch() }
             } else {
                 // Upgraded from a version before the notice existed — show it once, standalone.
                 presentPostUpdateSecurityNotice()
