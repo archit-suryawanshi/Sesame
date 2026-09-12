@@ -1,7 +1,11 @@
 # Sesame
 
-Face unlock for a Mac. A fork of [jonnyoo/glance](https://github.com/jonnyoo/glance) that actually
-unlocks.
+Face unlock for a Mac. A fork of [jonnyoo/glance](https://github.com/jonnyoo/glance) by Jonathan
+Zhou.
+
+These are working notes on what this fork changed and the measurements behind each change, kept
+because the reasoning is more useful than the diff. Most of them are tuning decisions, and tuning that holds on one Mac in
+one room does not always hold on another.
 
 ## No menu bar item
 
@@ -21,9 +25,9 @@ the other two routes still work.
 Quitting Sesame turns face unlock off until it is opened again. With Settings open the app is
 `.regular`, so the usual app menu and `⌘Q` are there.
 
-## The "0 out of 18" was never a problem
+## The enrollment quality label
 
-Upstream labels the enrollment quality as:
+Enrollment quality was labelled as:
 
 ```swift
 "Capture quality • \(poorCount)/\(identity.samples.count) low"
@@ -33,10 +37,10 @@ Enrollment captures 9 poses x 2 = 18 samples, and `poorCount` counts only the on
 quality. So **"0/18 low" means zero bad samples out of eighteen** - a flawless enrollment, not a
 score of zero. The label now counts upward ("all 18 samples good") so it cannot be read backwards.
 
-## Why it never unlocked
+## Where the match threshold sits
 
-The match threshold shipped at 0.66, and `bestMatch` required *both* the centroid similarity and
-the best single-sample similarity to clear it independently.
+The match threshold was 0.66, and `bestMatch` required *both* the centroid similarity and the best
+single-sample similarity to clear it independently.
 
 `tools/embedding_bench.swift` runs the app's own detect/align/embed path over labelled face pairs.
 On studio-quality portraits:
@@ -70,7 +74,7 @@ each one is an independent chance to fail an unlock that should have succeeded.
   clamped to `[0.36, 0.50]`. The floor is about 3.5x the worst measured impostor collision. The
   ceiling exists because enrollment samples are all same-session and same-lighting, so a tight
   enrollment asks for a cutoff above where a real 11pm unlock lands - letting calibration chase that
-  number would reproduce upstream's failure at a new value.
+  number would land in the same place at a different value.
 - **The "Match confidence" slider is now a bias** on the measured value (-0.04 / 0 / +0.05) rather
   than a raw cosine cutoff, and Settings prints the number each identity actually unlocks at.
 - **Stored thresholds >= 0.56 are discarded on load.** The whole new range tops out below that, so
@@ -124,7 +128,7 @@ guard SecureCredentialManager.isSessionUnlocked else { ... return }
 ```
 
 That gate is right — it means a rebooted Mac cannot be face-unlocked until a human has touched the
-sensor once. What was wrong is that nothing said so. Upstream's menu bar item read "Session Locked"
+sensor once. What it needed was somewhere to surface. Glance's menu bar item read "Session Locked"
 and let you fix it there. With no menu bar item, and with launch-at-login starting the app
 invisibly, the Mac simply stopped face unlocking after every restart with no visible reason and
 nowhere obvious to look. Nothing appears at the lock screen at all.
@@ -154,7 +158,7 @@ With recognition fixed, scans started reaching the liveness stage and being reje
 times out of four, with "Screen glare detected — this looks like a photo on a display."
 
 `glossGlare` describes itself correctly: "Skin gives many small scattered specular points; glass
-gives one big flat blob." The code did not do that. Concentration was a soft discount:
+gives one big flat blob." Concentration was applied as a soft discount rather than a gate:
 
 ```swift
 let level = fractionScore * (0.3 + 0.7 * clusterFactor)
@@ -200,8 +204,8 @@ instead of adding it after a face has already been recognized.
 
 ## Time to unlock
 
-Upstream spent roughly three seconds between the screen locking and the password being typed, most
-of it waiting rather than working:
+Roughly three seconds passed between the screen locking and the password being typed, most of it
+waiting rather than working:
 
 - a 300ms settle delay before the trigger was even evaluated
 - a further 250ms before arming
