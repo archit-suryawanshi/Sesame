@@ -120,6 +120,11 @@ final class LockMonitor {
     private func record(_ kind: LockEventKind) {
         lastEvent = kind
         eventCount += 1
+        // Logged here as well as in FaceUnlockCoordinator so the two layers can be told apart: a
+        // lock cycle that produces these lines but no `trigger:` line means the notification arrived
+        // and the observation failed to propagate it, which is a different bug from never being
+        // notified at all.
+        UnlockLog.event("lock monitor: \(kind) (locked=\(Self.isScreenActuallyLocked()))")
     }
 
     /// Authoritative lock state from the CoreGraphics session server, not a spoofable notification. Fails closed if unavailable.

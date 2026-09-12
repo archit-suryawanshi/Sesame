@@ -7,7 +7,7 @@
 //  nothing left no trace at all, so "it just doesn't unlock" was undiagnosable from the outside.
 //
 //  These go to the unified log instead, readable afterwards with:
-//      log show --predicate 'subsystem == "app.sesame.unlock"' --last 15m --info
+//      log show --predicate 'subsystem == "app.sesame.unlock"' --last 15m
 //
 //  Nothing secret is logged: no password bytes, no embeddings, no frames. Similarity scores,
 //  thresholds and gate names only, marked `.public` so they aren't redacted to <private> and the
@@ -23,16 +23,24 @@ enum UnlockLog {
     private static let logger = Logger(subsystem: subsystem, category: "scan")
 
     /// A gate that stopped an unlock before scanning even started.
+    ///
+    /// `notice`, not `info`. The unified log does not persist `info` or `debug` to disk unless the
+    /// subsystem has been explicitly configured to, so the first version of this logged the two most
+    /// useful lines here straight into a buffer that `log show` could never read back. A diagnostic
+    /// that only works if you already knew to turn it on is not a diagnostic.
     static func blocked(_ reason: String) {
-        logger.info("blocked: \(reason, privacy: .public)")
+        logger.notice("blocked: \(reason, privacy: .public)")
     }
 
     static func event(_ message: String) {
-        logger.info("\(message, privacy: .public)")
+        logger.notice("\(message, privacy: .public)")
     }
 
     /// The per-frame scoring line. Deliberately `debug` — it fires at camera rate and would
-    /// otherwise drown the entries that matter.
+    /// otherwise drown the entries that matter, so unlike the rest it is genuinely not persisted.
+    /// To see it, watch live while locking the screen:
+    ///
+    ///     log stream --predicate 'subsystem == "app.sesame.unlock"' --level debug
     static func frame(_ message: String) {
         logger.debug("\(message, privacy: .public)")
     }

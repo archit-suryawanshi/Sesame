@@ -96,13 +96,28 @@ final class FaceUnlockCoordinator {
     }
 
     private func evaluateTrigger() {
+        // One line per evaluation, with the whole gate state, because every `return` below used to be
+        // invisible. Without this, "it just didn't scan" is indistinguishable from "it never even
+        // heard the screen lock", and those have completely different fixes.
+        UnlockLog.event(
+            "trigger: event=\(lockMonitor.lastEvent.map(String.init(describing:)) ?? "none") "
+            + "locked=\(LockMonitor.isScreenActuallyLocked()) sleeping=\(lockMonitor.isSleeping) "
+            + "enabled=\(isEnabled) armed=\(hasArmedForCurrentLock) "
+            + "session=\(SecureCredentialManager.isSessionUnlocked ? "unlocked" : "LOCKED") "
+            + "password=\(SecureCredentialManager.hasStoredPassword()) "
+            + "accessibility=\(KeystrokeInjector.isAccessibilityTrusted())"
+        )
+
         guard LockMonitor.isScreenActuallyLocked() else {
             hasArmedForCurrentLock = false
             hasAutoRetriedForCurrentLock = false
             disarmOverlay()
             return
         }
-        guard !lockMonitor.isSleeping else { return }
+        guard !lockMonitor.isSleeping else {
+            UnlockLog.blocked("still going to sleep; waiting for the wake signal instead")
+            return
+        }
 
         // `.wake` (sleep, display sleep, or screensaver stopping) is an explicit "let me back in," so clear the one-shot guard.
         // `isWithinRecentArmBurst` keeps the several wake signals from one lid-open from each re-arming and fighting over the camera.
@@ -117,10 +132,19 @@ final class FaceUnlockCoordinator {
             UnlockLog.blocked("face unlock is switched off")
             return
         }
-        guard !hasArmedForCurrentLock else { return }
-        guard let signal = requiredTrigger(for: lockMonitor.lastEvent) else { return }
+        guard !hasArmedForCurrentLock else {
+            UnlockLog.blocked("already armed for this lock; waiting for the next wake or lock")
+            return
+        }
+        guard let signal = requiredTrigger(for: lockMonitor.lastEvent) else {
+            UnlockLog.blocked("event \(lockMonitor.lastEvent.map(String.init(describing:)) ?? "none") does not arm a scan")
+            return
+        }
         // A pinned display that isn't connected bails entirely rather than showing up elsewhere; "Main display" (nil) always resolves.
-        guard NotchGeometry.preferredScreen() != nil else { return }
+        guard NotchGeometry.preferredScreen() != nil else {
+            UnlockLog.blocked("the display pinned in Settings is not connected")
+            return
+        }
 
         guard SecureCredentialManager.isSessionUnlocked else {
             statusMessage = "Face unlock is on, but the session is locked — authenticate once from Password settings first."
@@ -138,7 +162,10 @@ final class FaceUnlockCoordinator {
 
         // Headless has nothing to arm/hover, so if this signal isn't selected there's nothing to do — and hasArmedForCurrentLock
         // must stay false, or a later selected signal could never fire (nothing else calls arm() to reset it).
-        guard showsUI || shouldAutoScan else { return }
+        guard showsUI || shouldAutoScan else {
+            UnlockLog.blocked("trigger \(signal.rawValue) is not selected, and animations are off so there is nothing to hover")
+            return
+        }
 
         hasArmedForCurrentLock = true
         lastArmedAt = .now
