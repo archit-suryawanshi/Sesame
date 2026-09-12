@@ -183,6 +183,42 @@ far milder than real skin, so the tuning passed every test and then failed on a 
 `specular`, `cluster` and `cropPx` values, so a remaining false positive is diagnosable rather than
 a guess.
 
+## Typing into a lock screen that was not listening
+
+With recognition and liveness both passing, the password was typed and the Mac stayed locked. The
+macOS lock screen can be showing the clock rather than an accepting password field, and a burst
+posted into that state loses its leading characters or all of them, with nothing visibly rejected.
+A keystroke does not reliably bring the field up. A click does.
+
+`KeystrokeInjector.wakeLockScreenField()` moves the pointer to the centre of the main display,
+clicks, and puts the pointer back. On the lock screen that point is the password field or the
+account avatar, both harmless to click.
+
+It runs at the *start* of a scan, not just before typing. The field needs a beat to settle, and
+spending that beat while the camera is still warming takes it off the critical path entirely
+instead of adding it after a face has already been recognized.
+
+## Time to unlock
+
+Upstream spent roughly three seconds between the screen locking and the password being typed, most
+of it waiting rather than working:
+
+- a 300ms settle delay before the trigger was even evaluated
+- a further 250ms before arming
+- only then `AVCaptureSession.startRunning`, which dominates everything else
+
+The capture session now starts the instant a lock or wake arrives, in parallel with both delays,
+gated on the same conditions the scan itself needs so the camera never lights up for a lock that was
+going to be declined. A decline after that point releases it again. The settle delay is 120ms and
+the arm buffer 60ms, and the per-character cadence is 8ms rather than 12ms.
+
+A successful unlock logs how long recognition actually took, so the remaining budget is measurable
+rather than guessed:
+
+```
+recognized Archit 480ms after the scan began; typing
+```
+
 ## Diagnosing a failed unlock
 
 Everything that decides an unlock happens while the screen is locked, where no window is visible and

@@ -88,11 +88,38 @@ final class FaceUnlockCoordinator {
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 self?.observeLockAndWakeEvents()
+                // Kicked off before the settle delay, not after it: AVCaptureSession start-up
+                // dominates time-to-unlock, and every millisecond of it that overlaps the delays
+                // below is a millisecond the user does not wait. Safe to call speculatively — it is
+                // idempotent, and the scan's own `camera.start()` finds the session already running.
+                self?.prewarmCameraIfArmed()
                 // Brief settle delay: CGSession's reported state can lag the true state right after wake.
-                try? await Task.sleep(nanoseconds: 300_000_000)
+                try? await Task.sleep(nanoseconds: 120_000_000)
                 self?.evaluateTrigger()
             }
         }
+    }
+
+    /// Starts the capture session ahead of the scan, but only when this lock really is going to
+    /// scan — the same gates `evaluateTrigger` applies, so the camera never lights up for a lock
+    /// that was going to be declined anyway.
+    private func prewarmCameraIfArmed() {
+        guard isEnabled,
+              LockMonitor.isScreenActuallyLocked(),
+              !lockMonitor.isSleeping,
+              SecureCredentialManager.isSessionUnlocked,
+              SecureCredentialManager.hasStoredPassword()
+        else { return }
+        Task { await camera.start() }
+    }
+
+    /// Logs why no scan is happening and releases anything `prewarmCameraIfArmed` may have started.
+    /// Only for declines that come *after* the pre-warm gates have already passed; the earlier ones
+    /// cannot have started the camera.
+    private func declineAfterPrewarm(_ reason: String) {
+        UnlockLog.blocked(reason)
+        guard NotchOverlayController.shared.phase != .scanning, scanTask == nil else { return }
+        camera.stop()
     }
 
     private func evaluateTrigger() {
@@ -133,16 +160,16 @@ final class FaceUnlockCoordinator {
             return
         }
         guard !hasArmedForCurrentLock else {
-            UnlockLog.blocked("already armed for this lock; waiting for the next wake or lock")
+            declineAfterPrewarm("already armed for this lock; waiting for the next wake or lock")
             return
         }
         guard let signal = requiredTrigger(for: lockMonitor.lastEvent) else {
-            UnlockLog.blocked("event \(lockMonitor.lastEvent.map(String.init(describing:)) ?? "none") does not arm a scan")
+            declineAfterPrewarm("event \(lockMonitor.lastEvent.map(String.init(describing:)) ?? "none") does not arm a scan")
             return
         }
         // A pinned display that isn't connected bails entirely rather than showing up elsewhere; "Main display" (nil) always resolves.
         guard NotchGeometry.preferredScreen() != nil else {
-            UnlockLog.blocked("the display pinned in Settings is not connected")
+            declineAfterPrewarm("the display pinned in Settings is not connected")
             return
         }
 
@@ -163,15 +190,17 @@ final class FaceUnlockCoordinator {
         // Headless has nothing to arm/hover, so if this signal isn't selected there's nothing to do — and hasArmedForCurrentLock
         // must stay false, or a later selected signal could never fire (nothing else calls arm() to reset it).
         guard showsUI || shouldAutoScan else {
-            UnlockLog.blocked("trigger \(signal.rawValue) is not selected, and animations are off so there is nothing to hover")
+            declineAfterPrewarm("trigger \(signal.rawValue) is not selected, and animations are off so there is nothing to hover")
             return
         }
 
         hasArmedForCurrentLock = true
         lastArmedAt = .now
         Task { [weak self] in
-            // arm() only shows a small closed notch silhouette, so this only needs a brief buffer past the login window's entrance.
-            try? await Task.sleep(nanoseconds: 250_000_000)
+            // arm() only shows a small closed notch silhouette, so this only needs a brief buffer
+            // past the login window's entrance. Trimmed from 250ms: it sits directly on the
+            // time-to-unlock path and the window is already up by the time a scan can see anything.
+            try? await Task.sleep(nanoseconds: 60_000_000)
             await self?.arm(autoScan: shouldAutoScan)
         }
     }
@@ -287,6 +316,14 @@ final class FaceUnlockCoordinator {
         }
         UnlockLog.event("scan started, window \(Int(scanWindowDuration))s, liveness \(SesameSettings.shared.livenessChecksEnabled ? SesameSettings.shared.livenessMode.rawValue : "off")")
 
+        // Concurrent with recognition, not after it. Bringing the lock screen's password field up
+        // costs a beat of settling, and doing it here means that beat is spent while the camera is
+        // still warming rather than added on once a face has already been recognized.
+        Task.detached(priority: .userInitiated) {
+            KeystrokeInjector.wakeLockScreenField()
+        }
+
+        let scanBegan = ContinuousClock.now
         let showsUI = self.showsUI
         if showsUI {
             NotchOverlayController.shared.beginScanning()
@@ -295,7 +332,8 @@ final class FaceUnlockCoordinator {
 
         let outcome = await observeScanWindow(
             deadline: Date().addingTimeInterval(scanWindowDuration),
-            requireOverlayScanning: showsUI
+            requireOverlayScanning: showsUI,
+            scanBegan: scanBegan
         )
 
         // A newer cycle now owns the camera and overlay — leave both alone, and leave the auto-retry one-shot unspent.
@@ -361,6 +399,10 @@ final class FaceUnlockCoordinator {
     /// `CGEvent.post` returns nothing and cannot fail visibly, so without this the app has no way to
     /// tell a real unlock from keystrokes that went nowhere — which is exactly the state a user sees
     /// as "it scanned my face and then nothing happened."
+    nonisolated static func elapsedMilliseconds(since start: ContinuousClock.Instant) -> Int {
+        Int((ContinuousClock.now - start) / .milliseconds(1))
+    }
+
     private static func waitForScreenToUnlock() async -> Bool {
         let deadline = Date().addingTimeInterval(unlockConfirmationTimeout)
         while Date() < deadline {
@@ -403,7 +445,7 @@ final class FaceUnlockCoordinator {
     /// liveness never fails the scan by staying undecided, it just keeps scanning until `deadline`.
     /// `requireOverlayScanning` bails early once the overlay's own timeout collapses the UI — only applied when there is an
     /// overlay, since headlessly `phase` never becomes `.scanning` at all.
-    private func observeScanWindow(deadline: Date, requireOverlayScanning: Bool) async -> ScanOutcome {
+    private func observeScanWindow(deadline: Date, requireOverlayScanning: Bool, scanBegan: ContinuousClock.Instant = .now) async -> ScanOutcome {
         let livenessEnabled = SesameSettings.shared.livenessChecksEnabled
         let liveness = LivenessAnalyzer()
         liveness.modeProvider = { SesameSettings.shared.livenessMode }
@@ -503,6 +545,7 @@ final class FaceUnlockCoordinator {
                     // The reason is already logged by injectStoredPassword.
                     return .unlockDidNotTake
                 }
+                UnlockLog.event("recognized \(readyMatch.identity.name) \(Self.elapsedMilliseconds(since: scanBegan))ms after the scan began; typing")
                 guard await Self.waitForScreenToUnlock() else {
                     // Keystrokes were posted but the Mac is still locked. CGEvent.post reports
                     // nothing back, so this is the only place the difference is observable: either

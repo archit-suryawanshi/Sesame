@@ -61,34 +61,54 @@ enum KeystrokeInjector {
             + "stored password is \(passwordBytes.isEmpty ? "EMPTY" : "non-empty")"
         )
         let source = CGEventSource(stateID: .hidSystemState)
-        wakeLockScreenField(source: source)
         for char in text {
             try postUnicode(String(char), source: source)
         }
         // Lets the field settle on the last character before submitting; a Return that races the
         // final keystroke submits a password one character short, which reads as a wrong password.
-        Thread.sleep(forTimeInterval: 0.15)
+        Thread.sleep(forTimeInterval: 0.1)
         try postReturn(source: source)
     }
 
-    /// Presses and releases Shift, then waits for the lock screen to present its password field.
+    /// Brings the lock screen's password field up and focused, so a later `typeAndReturn` lands.
     ///
-    /// The macOS lock screen does not always start with that field focused and accepting input: it
-    /// can be showing the clock, and the first keystroke dismisses that rather than typing into
-    /// anything. A password burst posted straight into it loses its leading characters, or all of
-    /// them, and the Mac stays locked with nothing visibly rejected.
+    /// The macOS lock screen can be showing the clock rather than the password field, and a burst
+    /// posted into that state loses its leading characters or all of them, leaving the Mac locked
+    /// with nothing visibly rejected. A keystroke alone does not reliably bring the field up; a
+    /// click does.
     ///
-    /// Shift is used because it produces no character, so this is harmless when the field already
-    /// had focus.
-    private nonisolated static func wakeLockScreenField(source: CGEventSource?) {
-        let shiftKey: CGKeyCode = 0x38
-        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: shiftKey, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: shiftKey, keyDown: false) else { return }
-        keyDown.post(tap: .cghidEventTap)
-        Thread.sleep(forTimeInterval: 0.02)
-        keyUp.post(tap: .cghidEventTap)
-        // Generous: the field animates in, and typing before it exists is the whole failure above.
-        Thread.sleep(forTimeInterval: 0.6)
+    /// Called at the *start* of a scan rather than just before typing. It costs about half a second
+    /// of settling, and running it while recognition is still working takes that off the critical
+    /// path entirely instead of adding it to the end.
+    ///
+    /// The click lands at the centre of the main display, which on the lock screen is the password
+    /// field or the account avatar. Both are harmless to click.
+    nonisolated static func wakeLockScreenField() {
+        guard isAccessibilityTrusted() else { return }
+        let bounds = CGDisplayBounds(CGMainDisplayID())
+        let point = CGPoint(x: bounds.midX, y: bounds.midY)
+        let source = CGEventSource(stateID: .hidSystemState)
+        // Put the pointer back afterwards. Focus does not follow the cursor on macOS, so the field
+        // stays focused, and the user does not unlock to find their pointer teleported to the middle
+        // of the screen every time.
+        let originalLocation = CGEvent(source: nil)?.location
+
+        // Moving first matters: a click posted without the cursor already there can be delivered to
+        // whatever the pointer was last over.
+        CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)?
+            .post(tap: .cghidEventTap)
+        Thread.sleep(forTimeInterval: 0.03)
+        CGEvent(mouseEventSource: source, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: .left)?
+            .post(tap: .cghidEventTap)
+        Thread.sleep(forTimeInterval: 0.03)
+        CGEvent(mouseEventSource: source, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left)?
+            .post(tap: .cghidEventTap)
+
+        if let originalLocation {
+            Thread.sleep(forTimeInterval: 0.03)
+            CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: originalLocation, mouseButton: .left)?
+                .post(tap: .cghidEventTap)
+        }
     }
 
     /// Per-character Unicode injection — bypasses keyboard layout issues.
@@ -105,9 +125,9 @@ enum KeystrokeInjector {
             }
         }
         keyDown.post(tap: .cghidEventTap)
-        Thread.sleep(forTimeInterval: 0.012)
+        Thread.sleep(forTimeInterval: 0.008)
         keyUp.post(tap: .cghidEventTap)
-        Thread.sleep(forTimeInterval: 0.012)
+        Thread.sleep(forTimeInterval: 0.008)
     }
 
     /// Physical Return key (virtual key 0x24).
@@ -118,7 +138,7 @@ enum KeystrokeInjector {
             throw KeystrokeError.eventCreationFailed
         }
         keyDown.post(tap: .cghidEventTap)
-        Thread.sleep(forTimeInterval: 0.012)
+        Thread.sleep(forTimeInterval: 0.008)
         keyUp.post(tap: .cghidEventTap)
     }
 }
