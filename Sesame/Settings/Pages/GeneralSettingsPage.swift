@@ -74,6 +74,10 @@ struct GeneralSettingsPage: View {
                 }
             }
         }
+        // Stated plainly rather than left to be discovered, because the behaviour is about the
+        // camera and silence is the wrong default for anything about a camera.
+        SettingsCaption(text: "Sesame yields to Touch ID. If you unlock with your fingerprint, or type your password, Sesame stops looking and switches the camera off immediately. It never competes with an unlock already in progress.")
+
         if let launchAtLoginError {
             SettingsCaption(text: launchAtLoginError)
         }

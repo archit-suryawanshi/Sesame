@@ -83,6 +83,7 @@ Open the `.dmg` and drag Sesame to `/Applications`, then open it.
 | **Attention awareness** | Your eyes have to be on the screen, not just your face pointed at it, the way Face ID means it. Estimated from pupil position, since macOS has no gaze API. |
 | **Calibrated matching** | The similarity threshold is measured from your own enrollment rather than shipped as one number for everybody. Settings shows the value and what your hardest pose scored. |
 | **Liveness checks** | Watches for the motion and reflections that separate a real face from a photo. *Light* or *Heavy* strictness, or off. |
+| **Yields to Touch ID** | Unlock with your fingerprint or type your password and Sesame stops looking and switches the camera off immediately. It never competes with an unlock already in progress. |
 | **Invisible** | No menu bar icon, no Dock tile. Settings opens with `⌃⌥⌘S`, by launching Sesame again, or with `open sesame://settings`. |
 | **Notch UI** | A closed pill that expands into a scan animation with success and failure states. Hover to retry — or turn animations off entirely and Sesame stays invisible. |
 | **Multiple identities** | Enroll several people, or several versions of yourself — with glasses, a beard, different lighting. Toggle any of them off without deleting. |
@@ -114,6 +115,7 @@ change below was measured on the hardware in front of it rather than adjusted by
 | **Session arming** | Asks for Touch ID once at launch, so face unlock is armed rather than silently inert after a restart. |
 | **Lock screen focus** | Clicks the password field awake at the *start* of a scan, so its settling overlaps camera warm-up instead of following recognition. |
 | **Latency** | The capture session starts the instant a lock or wake arrives, in parallel with the settle and arm delays, and is held briefly rather than released between the two events a wake emits. |
+| **Yielding** | An unlock by any other means cancels the scan and releases the camera before the settle delay, and reports as superseded rather than as a face that failed to match. |
 
 Full detail, with the measurements behind each one and one change that was measured and then
 **reverted**, is in **[FORK.md](FORK.md)**.

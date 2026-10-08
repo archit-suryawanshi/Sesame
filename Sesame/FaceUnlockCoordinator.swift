@@ -99,12 +99,40 @@ final class FaceUnlockCoordinator {
                 // dominates time-to-unlock, and every millisecond of it that overlaps the delays
                 // below is a millisecond the user does not wait. Safe to call speculatively — it is
                 // idempotent, and the scan's own `camera.start()` finds the session already running.
+                // Someone got in another way — Touch ID, the password typed by hand, an Apple Watch.
+                // Handled before the settle delay rather than after it, because this is the one
+                // transition where waiting is wrong: the Mac is already open and the camera is still
+                // looking at its owner. The delay exists to let CGSession settle after a *wake*, and
+                // an unlock needs no such benefit of the doubt.
+                if self?.standDownIfUnlocked() == true { return }
+
                 self?.prewarmCameraIfArmed()
                 // Brief settle delay: CGSession's reported state can lag the true state right after wake.
                 try? await Task.sleep(nanoseconds: 120_000_000)
+                // Re-checked after the sleep: an unlock can land inside those 120ms.
+                if self?.standDownIfUnlocked() == true { return }
                 self?.evaluateTrigger()
             }
         }
+    }
+
+    /// Cuts the scan and releases the camera the moment the Mac is open, whoever opened it.
+    ///
+    /// Sesame is not the only way in. If a finger reaches the Touch ID sensor first, or the password
+    /// is typed by hand, the unlock happens without Sesame being consulted — and a camera that keeps
+    /// filming its owner after the machine is already unlocked is doing nothing useful and looks
+    /// like it is doing something worse. Returns whether it stood down, so callers can stop.
+    @discardableResult
+    private func standDownIfUnlocked() -> Bool {
+        guard !LockMonitor.isScreenActuallyLocked() else { return false }
+        let wasLooking = scanTask != nil || camera.isRunning
+        hasArmedForCurrentLock = false
+        hasAutoRetriedForCurrentLock = false
+        disarmOverlay()
+        if wasLooking {
+            UnlockLog.event("Mac was unlocked another way; camera released and scan stood down")
+        }
+        return true
     }
 
     /// Starts the capture session ahead of the scan, but only when this lock really is going to
@@ -424,6 +452,12 @@ final class FaceUnlockCoordinator {
             } else {
                 scheduleAutoRetryIfEnabled(after: headlessRetryDelay)
             }
+        case .supersededByOtherUnlock:
+            // No failure animation and no retry. The Mac is open; there is nothing left to tell the
+            // user and nothing left to try. Reporting this as "no face detected" would be a lie
+            // about a scan that was simply overtaken.
+            statusMessage = "Unlocked another way."
+            UnlockLog.outcome("superseded — the Mac was unlocked by Touch ID, a typed password or a paired device")
         case .noResolution:
             statusMessage = "No face detected."
             UnlockLog.outcome("window expired without a decision — \(lastOutcome ?? "no face ever scored")")
@@ -478,6 +512,9 @@ final class FaceUnlockCoordinator {
 
     private enum ScanOutcome {
         case matched
+        /// The Mac was opened by something else mid-scan. Not a failure of any kind: nothing was
+        /// rejected, the question simply stopped being asked.
+        case supersededByOtherUnlock
         /// Face matched, but the eyes were never on the screen. Kept distinct from every other
         /// failure because the user did nothing wrong and the remedy is simply to look at the Mac.
         case notLookingAtScreen(String)
@@ -518,7 +555,7 @@ final class FaceUnlockCoordinator {
 
         while Date() < deadline, !Task.isCancelled,
               !requireOverlayScanning || NotchOverlayController.shared.phase == .scanning {
-            guard LockMonitor.isScreenActuallyLocked() else { return .noResolution }
+            guard LockMonitor.isScreenActuallyLocked() else { return .supersededByOtherUnlock }
 
             guard let frame = camera.currentFrame, frame.id != lastProcessedFrameID else {
                 // 20ms keeps the liveness window's sample count high while staying close to the camera's native ~33ms cadence.

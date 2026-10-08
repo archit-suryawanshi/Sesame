@@ -274,6 +274,33 @@ It is coarse by nature: it reliably separates looking at the screen from looking
 side, and does not pretend to know where on the screen you are looking. Settings > Recognition has
 the switch.
 
+## Yielding to Touch ID
+
+Sesame is not the only way into the Mac, and it should not behave as though it is. A finger on the
+Touch ID sensor, a password typed by hand, a paired Apple Watch: any of these can open the machine
+while a scan is still running, and a camera that keeps filming its owner after the Mac is already
+unlocked is doing nothing useful and looks like it is doing something worse.
+
+The scan already checked the lock state each pass, so it did stop, but it stopped late and reported
+the wrong thing: the result came back as `.noResolution`, logged as "no face detected", and scheduled
+an auto-retry for a Mac that was already open.
+
+Now:
+
+- `standDownIfUnlocked()` runs on the lock-state observation **before** the 120ms settle delay rather
+  than after it. That delay exists so CGSession can settle after a *wake*; an unlock needs no such
+  benefit of the doubt. It runs again after the sleep, since an unlock can land inside those 120ms.
+- It cancels the scan, releases the camera, and clears the per-lock arming flags in one place.
+- A scan overtaken this way returns `.supersededByOtherUnlock`, which shows no failure animation and
+  schedules no retry. Nothing was rejected; the question simply stopped being asked.
+
+There is no public macOS API for "a finger is on the Touch ID sensor" — the biometric subsystem is
+private — so the trigger is the unlock itself rather than the touch that caused it. In practice the
+camera goes dark within a frame or two of the Mac opening.
+
+Settings states the behaviour outright rather than leaving it to be discovered. Silence is the wrong
+default for anything concerning a camera.
+
 ## Diagnosing a failed unlock
 
 Everything that decides an unlock happens while the screen is locked, where no window is visible and
