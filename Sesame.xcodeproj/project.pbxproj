@@ -275,7 +275,7 @@
 				CODE_SIGN_ENTITLEMENTS = Sesame/Sesame.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = UG9NU2M9J3;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -290,7 +290,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.1.0;
 				INFOPLIST_KEY_CFBundleDisplayName = Sesame;
 				PRODUCT_BUNDLE_IDENTIFIER = com.architsuryawanshi.sesame;
 				PRODUCT_NAME = Sesame;
@@ -313,7 +313,7 @@
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = UG9NU2M9J3;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -328,7 +328,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.1.0;
 				INFOPLIST_KEY_CFBundleDisplayName = Sesame;
 				PRODUCT_BUNDLE_IDENTIFIER = com.architsuryawanshi.sesame;
 				PRODUCT_NAME = Sesame;

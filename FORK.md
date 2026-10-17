@@ -301,6 +301,52 @@ camera goes dark within a frame or two of the Mac opening.
 Settings states the behaviour outright rather than leaving it to be discovered. Silence is the wrong
 default for anything concerning a camera.
 
+## Where the time actually went
+
+Measured, after instrumenting the unlock to report recognition and gating separately:
+
+```
+recognized Archit Suryawanshi 1574ms after the scan began,
+of which 1529ms was spent waiting on liveness/attention after the face already matched
+```
+
+**Recognition took 45ms.** Everything else was the gates, and two of them were misbehaving.
+
+### The device cue denied a real face
+
+`DeviceBezelDetector` reported the bare fraction of the face overlapping the largest rectangle it
+found, and the cue fired at 0.15 of it. But the thing it is looking for — a phone held up with a
+face on it — has a specific shape: the rectangle *contains* the face and is larger than it. A
+rectangle clipping a corner does not, and a lock screen has plenty of those behind the user: a door
+frame, a monitor, a picture. A real scan was denied as "a device-shaped rectangle was detected
+around the face" on the strength of furniture, costing a full retry cycle.
+
+It now reports nothing unless the face is at least 85% inside the rectangle and the rectangle is at
+least 1.5x the face's area. The self-test pins both directions: a rectangle clipping a quarter of
+the face must not deny, and one framing it must.
+
+The detector's own header had said "first-pass estimates, not validated against real footage — tune
+here if false positives show up". They showed up.
+
+### Attention demanded an unbroken run
+
+Three *consecutive* attentive frames, reset by any frame that was not. Pupil landmarks jitter frame
+to frame, so one noisy read discarded the two good ones before it, and the counter kept restarting.
+That is the bulk of the 1529ms.
+
+It is now a majority of a short rolling window: three of the last five. At 30fps that window spans
+about a sixth of a second, so a majority of it is still "looking right now" rather than "looked at
+some point", and a single bad frame no longer throws away the evidence around it.
+
+### What is not a lever
+
+Worth recording so it is not re-attempted:
+
+- **Capture resolution.** Vision normalises internally. A full 1536x1152 frame costs 18.2ms against
+  13.7ms at 640x480. Not worth trading recognition range for 4ms.
+- **Frame rate.** Every format this camera offers is 30fps, so 33ms per frame is a floor.
+- **The capture-quality pass** was worth removing from the unlock path, but it is ~2ms a frame.
+
 ## Diagnosing a failed unlock
 
 Everything that decides an unlock happens while the screen is locked, where no window is visible and

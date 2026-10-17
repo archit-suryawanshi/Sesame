@@ -52,8 +52,12 @@ nonisolated enum AttentionDetector {
     static let maximumYawDegrees: Float = 22
     static let maximumPitchDegrees: Float = 22
 
-    /// Consecutive attentive frames required. One frame is a blink away from meaningless.
+    /// Attentive frames required out of the last `windowFrames`. A majority of a short window, not
+    /// an unbroken run: pupil landmarks jitter, and one noisy frame should not discard the evidence
+    /// before it. At 30fps the window spans about a sixth of a second, so a majority of it is still
+    /// "looking right now" rather than "looked at some point".
     static let requiredFrames = 3
+    static let windowFrames = 5
 
     /// `nil` when attention cannot be judged at all — no pupils resolved, typically low light or a
     /// heavy glasses reflection. Deliberately distinct from "not attentive": the caller reports it

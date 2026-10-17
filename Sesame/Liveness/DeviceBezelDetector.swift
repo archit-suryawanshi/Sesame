@@ -20,6 +20,12 @@ struct DeviceBezelObservation {
 }
 
 nonisolated enum DeviceBezelDetector {
+    /// How much of the face must sit inside the rectangle before it counts as framed rather than
+    /// merely overlapped. A phone held up to spoof a face puts essentially all of it inside.
+    static let minimumFaceContainment: CGFloat = 0.85
+    /// And the rectangle has to be bigger than the face it is supposedly displaying.
+    static let minimumAreaRatio: CGFloat = 1.5
+
     /// First-pass estimates, not validated against real footage — tune here if false positives/negatives show up.
     private static func makeRequest() -> VNDetectRectanglesRequest {
         let request = VNDetectRectanglesRequest()
@@ -55,6 +61,16 @@ nonisolated enum DeviceBezelDetector {
         guard faceArea > 0 else { return DeviceBezelObservation(rectangle: largest, faceOverlapFraction: nil) }
         let intersection = largest.intersection(faceBoundingBox)
         let overlap = (intersection.width * intersection.height) / faceArea
+
+        // The cue is "a device is being held up with a face on it", and that has a specific shape:
+        // the rectangle *contains* the face and is bigger than it. Any old rectangle that clips a
+        // corner of the face does not — and a lock screen has plenty of those behind the user, a
+        // door frame, a monitor, a picture. Reporting bare overlap denied a real face in testing on
+        // the strength of furniture.
+        guard overlap >= minimumFaceContainment,
+              largest.width * largest.height >= faceArea * minimumAreaRatio
+        else { return DeviceBezelObservation(rectangle: largest, faceOverlapFraction: nil) }
+
         return DeviceBezelObservation(rectangle: largest, faceOverlapFraction: overlap)
     }
 }

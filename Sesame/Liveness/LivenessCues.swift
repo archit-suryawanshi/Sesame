@@ -112,9 +112,10 @@ struct LivenessTuning: Equatable {
     var glossLevel: Float = 0.04
     var glossFrames: Int = 3
 
-    /// Deliberately lower than `glossLevel` — the device rectangle detector was already
-    /// the one signal proven reliable in real-device testing.
-    var deviceLevel: Float = 0.15
+    /// Raw containment fraction from `DeviceBezelDetector`, which now only reports at all when the
+    /// rectangle genuinely frames the face. 0.15 was set when this was bare overlap, where a
+    /// rectangle clipping a corner of the face was enough to deny.
+    var deviceLevel: Float = 0.8
     var deviceFrames: Int = 3
 
     /// Not the 0.5 you might expect: real-world Vision jitter alone measures ~0.21-0.46

@@ -530,14 +530,23 @@ struct LivenessSelfTest {
         }
         print("PASS: bright, scattered skin at the lock screen is not mistaken for screen glare.")
 
-        // Device overlap above the fire level must deny, even well below
-        // the old 0.55 bezel threshold — 20% for a few frames is the rule.
-        let deviceFrames = (0..<8).map { makeCueFrame(at: Double($0) * 0.05, glare: skinGlare, deviceOverlap: 0.25) }
+        // A rectangle that merely clips the face must NOT deny. DeviceBezelDetector only reports a
+        // fraction once the rectangle actually contains the face, but the decision model is tested
+        // on its own, so this pins the level: furniture behind the user denied a real face in
+        // testing when any overlap counted.
+        let clippingFrames = (0..<10).map { makeCueFrame(at: Double($0) * 0.05, glare: skinGlare, deviceOverlap: 0.25) }
+        if case .denied(let cue) = evaluate(clippingFrames, mode: .light).decision {
+            fatalError("FAIL: a rectangle clipping a quarter of the face should not deny, got denied by \(cue).")
+        }
+        print("PASS: a rectangle that merely clips the face is not mistaken for a device held up.")
+
+        // A device actually framing the face must still deny.
+        let deviceFrames = (0..<8).map { makeCueFrame(at: Double($0) * 0.05, glare: skinGlare, deviceOverlap: 0.95) }
         let deviceResult = evaluate(deviceFrames, mode: .light)
         guard case .denied(.deviceDetected) = deviceResult.decision else {
             fatalError("FAIL: 25% device overlap over 8 frames should deny, got \(deviceResult.decision).")
         }
-        print("PASS: modest but sustained device overlap denies.")
+        print("PASS: a device-shaped rectangle framing the face still denies.")
 
         // A single glare frame is not enough — the frame count is what
         // separates a real tell from one bright reflection.
@@ -589,7 +598,7 @@ struct LivenessSelfTest {
             confirmedFirst.states[.flatVs3D]?.hasFired == true,
             "FAIL: the synthetic live sequence should fire flat-vs-3D so the override test is meaningful."
         )
-        mixed += (1...6).map { makeCueFrame(at: lastTime + Double($0) * 0.05, glare: skinGlare, deviceOverlap: 0.4) }
+        mixed += (1...6).map { makeCueFrame(at: lastTime + Double($0) * 0.05, glare: skinGlare, deviceOverlap: 0.95) }
         var overridden = LivenessEvaluator(mode: .heavy)
         window = []
         var finalDecision = LivenessDecision.pending

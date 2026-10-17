@@ -543,9 +543,16 @@ final class FaceUnlockCoordinator {
         /// Turning liveness off in Settings makes this half permanently ready.
         var livenessConfirmed = !livenessEnabled
         let attentionRequired = SesameSettings.shared.requiresAttention
-        /// Consecutive attentive frames so far. Reset by any frame that is not, so a glance at the
-        /// screen while turning away cannot accumulate towards an unlock.
-        var attentiveFrames = 0
+        /// The last few attention readings. A majority of them must be attentive, rather than an
+        /// unbroken run: pupil landmarks jitter frame to frame, and demanding three consecutive
+        /// clean reads meant one noisy frame threw away the two before it. Measured at 1529ms spent
+        /// here after the face had already matched, against 45ms to recognise the face at all.
+        ///
+        /// Still not something a glance can pass. The window is short enough that it only ever holds
+        /// the last sixth of a second, so a majority of it is genuinely "looking right now".
+        var attentionWindow: [Bool] = []
+        /// Counted only for the log, to tell "rejected a lot" from "saw very few frames".
+        var attentionFramesSeen = 0
         /// When recognition first had a match in hand. The gap between this and the unlock is time
         /// spent waiting on liveness or attention rather than on recognising anyone, and the two are
         /// worth telling apart: one is the model's speed, the other is a setting's price.
@@ -588,18 +595,18 @@ final class FaceUnlockCoordinator {
             lastFaceBoundingBox = result.face.normalizedBoundingBox
 
             if attentionRequired {
-                if let attention = AttentionDetector.read(result.face) {
-                    if attention.isAttentive {
-                        attentiveFrames += 1
-                    } else {
-                        attentiveFrames = 0
-                        attentionRefusal = attention.reason
-                    }
+                attentionFramesSeen += 1
+                let reading = AttentionDetector.read(result.face)
+                if let reading {
+                    if !reading.isAttentive { attentionRefusal = reading.reason }
                 } else {
                     // Pupils not resolvable. Not the same as looking away, and reported differently:
                     // "look at the screen" is useless advice when the real problem is the light.
-                    attentiveFrames = 0
                     attentionRefusal = "couldn't see your eyes clearly"
+                }
+                attentionWindow.append(reading?.isAttentive ?? false)
+                if attentionWindow.count > AttentionDetector.windowFrames {
+                    attentionWindow.removeFirst()
                 }
             }
 
@@ -636,7 +643,7 @@ final class FaceUnlockCoordinator {
             if let best = scored.first {
                 let gate = best.threshold(fallback: matchThreshold, offset: matchStrictness.thresholdOffset)
                 lastOutcome = "\(best.identity.name) scored \(String(format: "%.3f", best.matchScore)) against \(String(format: "%.3f", gate)) (centroid \(String(format: "%.3f", best.centroidSimilarity)))"
-                UnlockLog.frame("\(lastOutcome ?? "") liveness=\(livenessConfirmed ? "confirmed" : "pending") attention=\(attentionRequired ? "\(attentiveFrames)/\(AttentionDetector.requiredFrames)\(attentionRefusal.map { " (\($0))" } ?? "")" : "off")")
+                UnlockLog.frame("\(lastOutcome ?? "") liveness=\(livenessConfirmed ? "confirmed" : "pending") attention=\(attentionRequired ? "\(attentionWindow.filter { $0 }.count)/\(AttentionDetector.requiredFrames)\(attentionRefusal.map { " (\($0))" } ?? "")" : "off")")
             }
 
             if let matched {
@@ -651,7 +658,8 @@ final class FaceUnlockCoordinator {
                 }
             }
 
-            let attentionConfirmed = !attentionRequired || attentiveFrames >= AttentionDetector.requiredFrames
+            let attentiveCount = attentionWindow.filter { $0 }.count
+            let attentionConfirmed = !attentionRequired || attentiveCount >= AttentionDetector.requiredFrames
             if let readyMatch, livenessConfirmed, attentionConfirmed {
                 statusMessage = "Recognized — unlocking…"
                 let livenessNote = livenessEnabled
@@ -660,6 +668,9 @@ final class FaceUnlockCoordinator {
                 let gate = readyMatch.threshold(fallback: matchThreshold, offset: matchStrictness.thresholdOffset)
                 lastOutcome = "Matched \(readyMatch.identity.name) at \(String(format: "%.3f", readyMatch.matchScore)) against \(String(format: "%.3f", gate)), \(livenessNote)."
                 let heldUp = matchReadyAt.map { Self.elapsedMilliseconds(since: $0) } ?? 0
+                if attentionRequired, heldUp > 60 {
+                    UnlockLog.event("attention: \(attentiveCount)/\(attentionWindow.count) of the last window attentive over \(attentionFramesSeen) frames\(attentionRefusal.map { "; last refusal: \($0)" } ?? "")")
+                }
                 UnlockLog.event(
                     "recognized \(readyMatch.identity.name) \(Self.elapsedMilliseconds(since: scanBegan))ms after the scan began"
                     + (heldUp > 60 ? ", of which \(heldUp)ms was spent waiting on liveness/attention after the face already matched" : "")
@@ -695,8 +706,9 @@ final class FaceUnlockCoordinator {
         }
         // A window that expired holding a match, with attention the only thing missing, is not "no
         // face detected" — the user was there the whole time and is owed the actual reason.
-        if readyMatch != nil, attentionRequired, attentiveFrames < AttentionDetector.requiredFrames {
-            return .notLookingAtScreen(attentionRefusal ?? "eyes were not on the screen")
+        if readyMatch != nil, attentionRequired, attentionWindow.filter({ $0 }).count < AttentionDetector.requiredFrames {
+            let seen = attentionFramesSeen
+            return .notLookingAtScreen("\(attentionRefusal ?? "eyes were not on the screen") (over \(seen) frames)")
         }
         return .noResolution
     }
