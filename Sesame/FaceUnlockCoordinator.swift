@@ -546,6 +546,10 @@ final class FaceUnlockCoordinator {
         /// Consecutive attentive frames so far. Reset by any frame that is not, so a glance at the
         /// screen while turning away cannot accumulate towards an unlock.
         var attentiveFrames = 0
+        /// When recognition first had a match in hand. The gap between this and the unlock is time
+        /// spent waiting on liveness or attention rather than on recognising anyone, and the two are
+        /// worth telling apart: one is the model's speed, the other is a setting's price.
+        var matchReadyAt: ContinuousClock.Instant?
         /// Last reason attention was refused, reported if the window expires without it.
         var attentionRefusal: String?
         /// Last frame's selected face, passed back so `selectDominantFace` stays on the same person instead of flip-flopping.
@@ -558,8 +562,10 @@ final class FaceUnlockCoordinator {
             guard LockMonitor.isScreenActuallyLocked() else { return .supersededByOtherUnlock }
 
             guard let frame = camera.currentFrame, frame.id != lastProcessedFrameID else {
-                // 20ms keeps the liveness window's sample count high while staying close to the camera's native ~33ms cadence.
-                try? await Task.sleep(nanoseconds: 20_000_000)
+                // 8ms, not 20ms. The camera delivers at ~33ms, so a 20ms poll could sit out most of
+                // a frame interval before noticing a frame had arrived; this costs nothing and
+                // removes that from the critical path.
+                try? await Task.sleep(nanoseconds: 8_000_000)
                 continue
             }
             lastProcessedFrameID = frame.id
@@ -567,7 +573,8 @@ final class FaceUnlockCoordinator {
             let pipeline = self.pipeline
             let previousBoundingBox = lastFaceBoundingBox
             let outcome = await Task.detached(priority: .userInitiated) { () -> (FaceRecognitionResult, LivenessFrame)? in
-                guard let result = try? pipeline.recognize(in: frame.image, preferNear: previousBoundingBox) else { return nil }
+                // No capture-quality pass: nothing on this path reads it, and it is measurable work.
+                guard let result = try? pipeline.recognize(in: frame.image, preferNear: previousBoundingBox, includeQuality: false) else { return nil }
                 let faceCrop = CameraManager.renderCrop(from: frame, imageRect: result.face.boundingBox)
                 return (result, LivenessFeatureExtractor.extract(from: result, frame: frame.image, faceCrop: faceCrop))
             }.value
@@ -575,7 +582,7 @@ final class FaceUnlockCoordinator {
             guard let (result, livenessFrame) = outcome else {
                 consecutiveWrongFaceFrames = 0
                 lastFaceBoundingBox = nil
-                try? await Task.sleep(nanoseconds: 20_000_000)
+                try? await Task.sleep(nanoseconds: 8_000_000)
                 continue
             }
             lastFaceBoundingBox = result.face.normalizedBoundingBox
@@ -634,6 +641,7 @@ final class FaceUnlockCoordinator {
 
             if let matched {
                 consecutiveWrongFaceFrames = 0
+                if readyMatch == nil, matchReadyAt == nil { matchReadyAt = .now }
                 readyMatch = matched
             } else {
                 readyMatch = nil
@@ -651,7 +659,12 @@ final class FaceUnlockCoordinator {
                     : "liveness off"
                 let gate = readyMatch.threshold(fallback: matchThreshold, offset: matchStrictness.thresholdOffset)
                 lastOutcome = "Matched \(readyMatch.identity.name) at \(String(format: "%.3f", readyMatch.matchScore)) against \(String(format: "%.3f", gate)), \(livenessNote)."
-                UnlockLog.event("recognized \(readyMatch.identity.name) \(Self.elapsedMilliseconds(since: scanBegan))ms after the scan began; typing")
+                let heldUp = matchReadyAt.map { Self.elapsedMilliseconds(since: $0) } ?? 0
+                UnlockLog.event(
+                    "recognized \(readyMatch.identity.name) \(Self.elapsedMilliseconds(since: scanBegan))ms after the scan began"
+                    + (heldUp > 60 ? ", of which \(heldUp)ms was spent waiting on liveness/attention after the face already matched" : "")
+                    + "; typing"
+                )
 
                 // Shown here, at the moment the face is accepted, rather than after the unlock has
                 // been confirmed. It used to run after `waitForScreenToUnlock`, so the Mac was
@@ -678,7 +691,7 @@ final class FaceUnlockCoordinator {
                 return .matched
             }
 
-            try? await Task.sleep(nanoseconds: 20_000_000)
+            try? await Task.sleep(nanoseconds: 8_000_000)
         }
         // A window that expired holding a match, with attention the only thing missing, is not "no
         // face detected" — the user was there the whole time and is owed the actual reason.

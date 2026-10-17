@@ -85,8 +85,8 @@ enum LivenessMode: String, CaseIterable, Identifiable, Sendable {
 
     var summary: String {
         switch self {
-        case .light: return "Only rejects obvious spoofs."
-        case .heavy: return "Also requires proof of a real face."
+        case .light: return "Only rejects obvious spoofs. Unlocks in well under a second."
+        case .heavy: return "Waits to see you blink or turn your head. Usually adds 2-4 seconds."
         }
     }
 
