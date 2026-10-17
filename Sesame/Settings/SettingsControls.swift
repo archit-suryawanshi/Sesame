@@ -710,8 +710,8 @@ struct LivenessModePicker: View {
         .opacity(isEnabled ? 1 : 0.4)
     }
 
-    /// A half-filled shield for Light (it only screens *out* spoofs) versus
-    /// a checked one for Heavy (it also demands positive proof of life).
+    /// A dim sun for Light (it only screens *out* spoofs) versus a bright one for Heavy (it also
+    /// demands positive proof of life, and waits for it).
     private func iconName(for mode: LivenessMode) -> String {
         switch mode {
         case .light: return "sun.min.fill"

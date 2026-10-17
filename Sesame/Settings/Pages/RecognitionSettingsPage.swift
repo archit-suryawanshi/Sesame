@@ -104,6 +104,14 @@ struct RecognitionSettingsPage: View {
                         isEnabled: settings.livenessChecksEnabled
                     )
                 }
+
+                // `LivenessMode.summary` existed but was rendered nowhere, so the two tiles were a
+                // choice between "Light" and "Heavy" with no statement of what either does or what
+                // it costs — and the cost is seconds, which is exactly the thing worth knowing
+                // before picking.
+                if settings.livenessChecksEnabled {
+                    SettingsCaption(text: settings.livenessMode.summary)
+                }
             }
         }
     }
